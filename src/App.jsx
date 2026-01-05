@@ -345,7 +345,7 @@ export default function MediblasterVisualizer() {
       </div>
 
       {/* Bottom Section: Timeline (Comparative Video Editor Style) */}
-      <div className="h-[45vh] min-h-[300px] bg-slate-800 border-t-4 border-slate-950 flex flex-col shadow-[0_-10px_40px_rgba(0,0,0,0.5)] z-10 relative">
+      <div className="h-[35vh] min-h-[250px] bg-slate-800 border-t-4 border-slate-950 flex flex-col shadow-[0_-10px_40px_rgba(0,0,0,0.5)] z-10 relative">
           
           {/* Timeline Toolbar */}
           <div className="px-6 py-3 bg-slate-800 border-b border-slate-700 flex items-center justify-between shrink-0">
