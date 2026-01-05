@@ -237,29 +237,33 @@ export default function MediblasterVisualizer() {
                   label="Weapon Power" 
                   value={params.weaponPower} 
                   onChange={(v) => handleParamChange('weaponPower', v)}
-                  min={100} max={200} step={1}
+                  min={100} max={200} step={5}
                   unit="%"
+                  tickStep={10}
                 />
                 <ControlInput 
                   label="Attack Speed" 
                   value={params.attackSpeed} 
                   onChange={(v) => handleParamChange('attackSpeed', v)}
-                  min={100} max={200} step={1}
+                  min={100} max={200} step={5}
                   unit="%"
+                  tickStep={10}
                 />
 
                 {/* New Clip Size Controls */}
-                <div className="space-y-3">
-                  <div className="flex justify-between text-sm">
-                    <label className="text-slate-300 font-medium">Clip Size Modifiers</label>
-                    <span className="text-emerald-400 font-mono">{currentClipSize} rnd</span>
+                <div className="space-y-2">
+                  <div className="flex justify-between items-end text-sm">
+                    <label className="text-slate-300 font-medium pb-0.5">Clip Size Modifiers</label>
+                    <div className="text-right leading-none">
+                        <span className="text-emerald-400 font-mono font-bold text-base">{currentClipSize}</span>
+                        <span className="text-slate-500 text-[10px] ml-1.5 uppercase font-medium">/ {BASE_CLIP} Base</span>
+                    </div>
                   </div>
                   <div className="grid grid-cols-3 gap-2">
                     <ClipToggle label="+20%" active={params.clipMods.m20} onClick={() => toggleClipMod('m20')} />
                     <ClipToggle label="+25%" active={params.clipMods.m25} onClick={() => toggleClipMod('m25')} />
                     <ClipToggle label="+40%" active={params.clipMods.m40} onClick={() => toggleClipMod('m40')} />
                   </div>
-                  <div className="text-[10px] text-slate-500 text-right">Base: {BASE_CLIP} rounds</div>
                 </div>
                 
                 <div className="flex items-center justify-between p-3 bg-slate-700/50 rounded-lg">
@@ -426,6 +430,13 @@ export default function MediblasterVisualizer() {
                     <span className="text-xs text-slate-400 font-bold uppercase tracking-wider bg-slate-900/50 px-2 rounded backdrop-blur-sm shadow-sm">Base Profile (Static)</span>
                  </div>
                  
+                 {/* Floating time label - Sticky to right edge of viewport */}
+                 <div className="absolute top-0 right-0 h-full w-full pointer-events-none z-30">
+                    <span className="sticky left-[95%] text-xs font-mono text-slate-400 bg-slate-900/80 px-2 rounded border border-slate-700/50 whitespace-nowrap">
+                        {baseStats.totalTimeSeconds.toFixed(2)}s
+                    </span>
+                 </div>
+
                  <div className="w-full flex-1 bg-slate-900/80 rounded border border-slate-700 relative overflow-hidden group-hover:brightness-110 transition-all">
                     <TimelineTrack 
                         stats={baseStats} 
@@ -558,22 +569,49 @@ function TimelineTrack({ stats, maxTime }) {
     );
 }
 
-function ControlInput({ label, value, onChange, min, max, step, unit }) {
+function ControlInput({ label, value, onChange, min, max, step, unit, tickStep }) {
+  const ticks = useMemo(() => {
+    if (!tickStep) return [];
+    const t = [];
+    // Start from first tick after min, or min if it aligns
+    const firstTick = Math.ceil(min / tickStep) * tickStep;
+    for (let i = firstTick; i <= max; i += tickStep) {
+        t.push(i);
+    }
+    return t;
+  }, [min, max, tickStep]);
+
   return (
     <div className="space-y-1">
       <div className="flex justify-between text-sm">
         <label className="text-slate-300 font-medium">{label}</label>
         <span className="text-emerald-400 font-mono">{value}{unit}</span>
       </div>
-      <input
-        type="range"
-        min={min}
-        max={max}
-        step={step}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
-      />
+      <div className="relative w-full h-6 flex items-center">
+        {/* Custom Track Background with Ticks */}
+        <div className="absolute inset-x-0 h-2 bg-slate-700 rounded-lg overflow-hidden pointer-events-none">
+            {ticks.map(tickVal => {
+                const percent = ((tickVal - min) / (max - min)) * 100;
+                return (
+                    <div 
+                        key={tickVal}
+                        className="absolute top-0 bottom-0 w-0.5 bg-slate-600/50"
+                        style={{ left: `${percent}%` }}
+                    />
+                );
+            })}
+        </div>
+
+        <input
+            type="range"
+            min={min}
+            max={max}
+            step={step}
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            className="relative z-10 w-full h-2 bg-transparent rounded-lg appearance-none cursor-pointer accent-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+        />
+      </div>
     </div>
   );
 }
@@ -582,14 +620,13 @@ function ClipToggle({ label, active, onClick }) {
     return (
         <button
             onClick={onClick}
-            className={`flex items-center justify-center space-x-2 p-2 rounded-lg border transition-all ${
+            className={`flex items-center justify-center py-2 px-3 rounded-lg border text-xs font-bold transition-all ${
                 active 
-                ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400' 
-                : 'bg-slate-700/50 border-slate-600 text-slate-400 hover:bg-slate-700'
+                ? 'bg-emerald-600 border-emerald-500 text-white shadow-md shadow-emerald-900/20' 
+                : 'bg-slate-700/50 border-slate-600 text-slate-400 hover:bg-slate-700 hover:text-slate-200'
             }`}
         >
-            {active ? <Check className="w-3 h-3" /> : <div className="w-3 h-3" />}
-            <span className="text-xs font-bold">{label}</span>
+            {label}
         </button>
     )
 }
