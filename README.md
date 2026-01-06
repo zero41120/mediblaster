@@ -1,16 +1,37 @@
-# React + Vite
+# Mediblaster Visualizer
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Interactive visualizer for Juno's Mediblaster weapon cycle. Tune weapon power, attack speed, clip modifiers, and reload behavior to see DPS/HPS changes and a detailed timing breakdown.
 
-Currently, two official plugins are available:
+## Features
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+- Side-by-side base vs custom cycle comparison
+- Live DPS/HPS, total output, and cycle time stats
+- Timeline view with zoom, drag-to-scroll, and labeled phases
+- Clip size modifier toggles and mode switch (healing vs damage)
+- Mechanics breakdown derived from community analysis
 
-## React Compiler
+## Tech Stack
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+- React 19
+- Vite 7
+- Tailwind CSS
+- lucide-react icons
 
-## Expanding the ESLint configuration
+## Getting Started
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+```bash
+npm install
+npm run dev
+```
+
+## Deployment
+
+`npm run deploy` runs the build and publishes `dist` using `gh-pages`.
+Visit: https://zero41120.github.io/mediblaster/
+
+## Technical Source
+
+Based on my own technical analysis post in r/JunoMains
+
+- [View in Reddit](https://www.reddit.com/r/JunoMains/comments/1q3o8lw/technical_analysis_juno_mediblaster/)
+- [View in this Repo](https://github.com/zero41120/mediblaster/blob/main/original_analysis.md)
