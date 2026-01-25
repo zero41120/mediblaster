@@ -222,7 +222,7 @@ export default function SoldierPulseRifle() {
               <div className="flex items-center justify-between group">
                 <div className="flex flex-col">
                   <label className="text-xs font-semibold text-slate-300">Double Helix Power</label>
-                  <span className="text-[9px] text-slate-500">Synergy Bonus</span>
+                  <span className="text-[9px] text-slate-500">30% mini-rocket</span>
                 </div>
                 <input
                   type="checkbox"
@@ -234,7 +234,7 @@ export default function SoldierPulseRifle() {
               <div className="flex items-center justify-between group">
                 <div className="flex flex-col">
                   <label className="text-xs font-semibold text-slate-300">Cratered Power</label>
-                  <span className="text-[9px] text-slate-500">+20% Dmg Base</span>
+                  <span className="text-[9px] text-slate-500">+15% Explosion damage</span>
                 </div>
                 <input
                   type="checkbox"
