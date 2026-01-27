@@ -7,6 +7,8 @@ const BASE_AMMO = 30;
 const RELOAD = 1.5;
 const ROCKET_INTERVAL = 6;
 const ROCKET_CAST = 0.5;
+const FIRE_RATE_MAX = 20;
+const HALF_SECOND = 0.5;
 
 const AMMO_OPTIONS = [
   { label: '+20%', value: 0.2 },
@@ -28,10 +30,30 @@ export default function SoldierPulseRifle() {
     [activeAmmoMods]
   );
 
+  const fireRateBreakpoints = useMemo(() => {
+    const minRate = BASE_RATE;
+    const maxRate = BASE_RATE * (1 + FIRE_RATE_MAX * 0.05);
+    const minBullets = Math.floor(minRate * HALF_SECOND) + 1;
+    const maxBullets = Math.floor(maxRate * HALF_SECOND) + 1;
+    const points = [];
+
+    for (let bullets = minBullets + 1; bullets <= maxBullets; bullets += 1) {
+      const requiredRate = (bullets - 1) / HALF_SECOND;
+      const pct = (requiredRate / BASE_RATE - 1) / 0.05;
+      const percentLabel = Math.round(pct * 5);
+      if (pct >= 0 && pct <= FIRE_RATE_MAX) {
+        points.push({ bullets, pct, percentLabel });
+      }
+    }
+
+    return points;
+  }, []);
+
   const computed = useMemo(() => {
     const damage = BASE_DAMAGE * (1 + damagePct * 0.05);
     const rate = BASE_RATE * (1 + fireRatePct * 0.05);
     const ammo = Math.floor(BASE_AMMO * (1 + totalAmmoBonus));
+    const maxRate = BASE_RATE * (1 + FIRE_RATE_MAX * 0.05);
 
     const fireTime = ammo / rate;
     const cycleTime = fireTime + RELOAD;
@@ -43,8 +65,11 @@ export default function SoldierPulseRifle() {
     else if (explosionDmg) baseRocketDmg = 144;
 
     const finalRocketDmg = rocketEnabled ? baseRocketDmg * (1 + abilityPct * 0.05) : 0;
-    const bulletsHitInHalfSec = rate * 0.5;
-    const bulletBurstDmg = damage * bulletsHitInHalfSec;
+    const bulletsHitInHalfSec = rate * HALF_SECOND;
+    const autoAimBullets = Math.floor(bulletsHitInHalfSec + 1e-9) + 1;
+    const nextBulletRate = autoAimBullets / HALF_SECOND;
+    const rateToNextBullet = Math.max(0, nextBulletRate - rate);
+    const bulletBurstDmg = damage * autoAimBullets;
     const totalBurst = finalRocketDmg + bulletBurstDmg;
 
     let combinedSustainedDps = weaponSustainedDps;
@@ -60,6 +85,10 @@ export default function SoldierPulseRifle() {
       ammo,
       finalRocketDmg,
       bulletsHitInHalfSec,
+      autoAimBullets,
+      nextBulletRate,
+      rateToNextBullet,
+      maxRate,
       bulletBurstDmg,
       totalBurst,
       combinedSustainedDps
@@ -137,16 +166,37 @@ export default function SoldierPulseRifle() {
                 <label className="text-xs font-medium block text-slate-400 uppercase">Fire Rate (per second)</label>
                 <span className="text-xs text-blue-400 font-bold">+{fireRatePct * 5}%</span>
               </div>
-              <span className="text-white font-mono font-bold text-lg">{computed.rate.toFixed(2)}</span>
+              <div className="text-right">
+                <span className="text-white font-mono font-bold text-lg">{computed.rate.toFixed(2)}</span>
+                <div className="text-[10px] text-slate-400 font-mono">
+                  Super Visor: {computed.autoAimBullets} Bullet (0.5s)
+                </div>
+              </div>
             </div>
-            <input
-              type="range"
-              min="0"
-              max="20"
-              value={fireRatePct}
-              onChange={(e) => setFireRatePct(Number(e.target.value))}
-              className="w-full h-2 bg-slate-700 rounded-lg appearance-none accent-blue-500"
-            />
+            <div className="relative pt-4">
+              <div className="absolute left-0 right-0 top-0 h-3">
+                {fireRateBreakpoints.map((point) => (
+                  <div
+                    key={point.bullets}
+                    className="absolute top-0 -translate-x-1/2"
+                    style={{ left: `${(point.pct / FIRE_RATE_MAX) * 100}%` }}
+                  >
+                    <div className="w-0 h-0 border-l-4 border-r-4 border-t-[6px] border-l-transparent border-r-transparent border-t-slate-400"></div>
+                    <div className="mt-1 text-[9px] text-slate-400 font-mono text-center whitespace-nowrap">
+                      {point.bullets} ({point.percentLabel}%)
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <input
+                type="range"
+                min="0"
+                max={FIRE_RATE_MAX}
+                value={fireRatePct}
+                onChange={(e) => setFireRatePct(Number(e.target.value))}
+                className="w-full h-2 bg-slate-700 rounded-lg appearance-none accent-blue-500"
+              />
+            </div>
           </div>
 
           <div>
@@ -249,7 +299,22 @@ export default function SoldierPulseRifle() {
 
         <div className="mt-6 pt-4 border-t border-slate-700 space-y-1.5 text-[11px] font-mono text-slate-400">
           <div className="flex justify-between"><span>Helix Rocket Hit:</span><span className="text-orange-400">{computed.finalRocketDmg.toFixed(1)}</span></div>
-          <div className="flex justify-between"><span>0.5s Bullets Hit:</span><span className="text-slate-200">{computed.bulletsHitInHalfSec.toFixed(2)}</span></div>
+          <div className="flex justify-between"><span>0.5s Bullet Window (raw):</span><span className="text-slate-200">{computed.bulletsHitInHalfSec.toFixed(2)}</span></div>
+          <div className="flex justify-between">
+            <span>Auto-Aim Bullets (0.5s):</span>
+            <span className="text-slate-200">{computed.autoAimBullets}</span>
+          </div>
+          <div className="flex justify-between">
+            <span>Next Bullet Breakpoint:</span>
+            <span className="text-slate-200">
+              {computed.nextBulletRate.toFixed(2)} rate
+              {computed.nextBulletRate > computed.maxRate
+                ? ' (capped)'
+                : computed.rateToNextBullet > 0
+                  ? ` (+${computed.rateToNextBullet.toFixed(2)})`
+                  : ' (at breakpoint)'}
+            </span>
+          </div>
           <div className="flex justify-between"><span>Bullet Burst Dmg:</span><span className="text-slate-200">{computed.bulletBurstDmg.toFixed(1)}</span></div>
           <div className="flex justify-between"><span>Mag Capacity:</span><span className="text-slate-200">{computed.ammo}</span></div>
         </div>
