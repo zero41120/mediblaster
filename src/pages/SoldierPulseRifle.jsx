@@ -9,6 +9,7 @@ const ROCKET_INTERVAL = 6;
 const ROCKET_CAST = 0.5;
 const FIRE_RATE_MAX = 20;
 const HALF_SECOND = 0.5;
+const SLIDER_INSET_PX = 12;
 
 const AMMO_OPTIONS = [
   { label: '+20%', value: 0.2 },
@@ -174,17 +175,17 @@ export default function SoldierPulseRifle() {
               </div>
             </div>
             <div className="relative pt-4">
-              <div className="absolute left-0 right-0 top-0 h-3">
+              <div className="absolute top-0 h-3" style={{ left: SLIDER_INSET_PX, right: SLIDER_INSET_PX }}>
                 {fireRateBreakpoints.map((point) => (
                   <div
                     key={point.bullets}
-                    className="absolute top-0 -translate-x-1/2"
+                    className="absolute top-0 -translate-x-1/2 flex flex-col items-center"
                     style={{ left: `${(point.pct / FIRE_RATE_MAX) * 100}%` }}
                   >
-                    <div className="w-0 h-0 border-l-4 border-r-4 border-t-[6px] border-l-transparent border-r-transparent border-t-slate-400"></div>
-                    <div className="mt-1 text-[9px] text-slate-400 font-mono text-center whitespace-nowrap">
+                    <div className="text-[9px] text-slate-400 font-mono whitespace-nowrap leading-none mb-1">
                       {point.bullets} ({point.percentLabel}%)
                     </div>
+                    <div className="w-0 h-0 border-l-4 border-r-4 border-t-[6px] border-l-transparent border-r-transparent border-t-slate-400"></div>
                   </div>
                 ))}
               </div>
