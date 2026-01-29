@@ -1,8 +1,9 @@
-import { ArrowLeft, Rocket, RotateCcw, Target, ZoomIn, ZoomOut } from 'lucide-react';
-import { useMemo, useRef, useState } from 'react';
+import { ArrowLeft, ChevronDown, Rocket, RotateCcw, Target, ZoomIn, ZoomOut } from 'lucide-react';
+import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 const SUPER_VISOR_ICON = 'https://static.wikia.nocookie.net/overwatch_gamepedia/images/8/88/Super_Visor.png';
+const SUPER_SERUM_ICON = 'https://static.wikia.nocookie.net/overwatch_gamepedia/images/2/21/Super_Serum.png';
 const CHAINGUN_ICON = 'https://static.wikia.nocookie.net/overwatch_gamepedia/images/5/52/Chaingun.png';
 const MAN_ON_RUN_ICON = 'https://static.wikia.nocookie.net/overwatch_gamepedia/images/5/5d/Man_On_The_Run.png';
 const CRATERED_ICON = 'https://static.wikia.nocookie.net/overwatch_gamepedia/images/d/d1/Cratered.png';
@@ -23,6 +24,7 @@ const SUPER_SERUM_BASE_RATE = 1.25;
 const SUPER_SERUM_ACTIVE_RATE = 1.5;
 const SUPER_SERUM_DAMAGE_MULTIPLIER = 0.85;
 const TPS = 60;
+const SERUM_RELOAD_TIME = 0;
 
 const AMMO_OPTIONS = [
   { label: '+20%', value: 0.2 },
@@ -59,6 +61,9 @@ export default function SoldierPulseRifle() {
   const [miniRocket, setMiniRocket] = useState(false);
   const [explosionDmg, setExplosionDmg] = useState(false);
   const [zoomLevel, setZoomLevel] = useState(1);
+  const [ammoAccordionOpen, setAmmoAccordionOpen] = useState(true);
+  const [rocketAccordionOpen, setRocketAccordionOpen] = useState(true);
+  const [visualizerOpen, setVisualizerOpen] = useState(true);
 
   const scrollContainerRef = useRef(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -135,6 +140,8 @@ export default function SoldierPulseRifle() {
     // Firing Sequence
     const magazines = superSerumActive ? 2 : 1;
     let totalBulletDamage = 0;
+    let totalFireTimeSeconds = 0;
+    let totalReloadTimeSeconds = 0;
     
     // For Burst Calculation (High Water Mark)
     let bestBurstWindowDmg = 0;
@@ -159,14 +166,7 @@ export default function SoldierPulseRifle() {
 
       // Special Event: Serum Refill between mags
       if (mag > 0) {
-        timeline.push({ 
-          type: 'reload', 
-          start: currentTime, 
-          duration: 0.1 * TPS, // Small visual duration 
-          label: 'Serum',
-          isSerum: true 
-        });
-        currentTime += 0.1 * TPS;
+        currentTime += SERUM_RELOAD_TIME * TPS;
       }
 
       for (let i = 0; i < ammo; i++) {
@@ -183,6 +183,8 @@ export default function SoldierPulseRifle() {
         cumulativeDamage += bulletDmg;
         totalBulletDamage += bulletDmg;
 
+        const serumTrigger = superSerumActive && mag === 0 && i === ammo - 1;
+        const serumActiveBullet = superSerumActive && mag === 1;
         timeline.push({
           type: 'fire',
           start: currentTime,
@@ -190,7 +192,9 @@ export default function SoldierPulseRifle() {
           bulletIndex: (mag * ammo) + i + 1,
           damage: bulletDmg,
           cumulative: cumulativeDamage,
-          showLabel: ((mag * ammo) + i + 1) % 5 === 0 || (mag === magazines - 1 && i === ammo - 1)
+          showLabel: ((mag * ammo) + i + 1) % 5 === 0 || (mag === magazines - 1 && i === ammo - 1) || serumTrigger,
+          serumTrigger,
+          serumActiveBullet
         });
 
         // Track Burst (0.5s window approx)
@@ -204,11 +208,15 @@ export default function SoldierPulseRifle() {
         if (i < ammo - 1) currentTime += intervalFrames;
       }
       
-      // Post-mag recovery or transition logic could go here
+      totalFireTimeSeconds += ammo / phaseRate;
+      if (mag < magazines - 1) {
+        totalReloadTimeSeconds += superSerumActive ? SERUM_RELOAD_TIME : reloadTime;
+      }
     }
 
+    totalReloadTimeSeconds += reloadTime;
     const totalTime = currentTime / TPS;
-    const sustainedDps = (totalBulletDamage + (rocketOn ? finalRocketDmg : 0)) / totalTime;
+    const sustainedDps = totalBulletDamage / (totalFireTimeSeconds + totalReloadTimeSeconds);
 
     // Burst Calculation: Use the stats from the "Strongest" phase (Active if Serum is on)
     let burstRate = baseRate;
@@ -417,7 +425,7 @@ export default function SoldierPulseRifle() {
                     className="h-4 w-4 rounded-full border border-slate-700 bg-slate-900/70 p-[1px]"
                     loading="lazy"
                   />
-                  <span>Super Visor: {computed.autoAimBullets} Bullet (0.5s)</span>
+                  <span>Super Visor: After using Helix Rocket, activate Tactical Visor for 0.50s (sim: {computed.autoAimBullets} bullets).</span>
                 </div>
               </div>
             </div>
@@ -447,126 +455,133 @@ export default function SoldierPulseRifle() {
             </div>
           </div>
 
-          <div>
-            <div className="flex justify-between mb-1 items-end">
-              <div>
-                <label className="text-xs font-medium block text-slate-400 uppercase">Ability Power (per direct hit)</label>
-                <span className="text-xs text-orange-400 font-bold">+{abilityPct * 5}%</span>
+          <div className="bg-slate-900/50 rounded-xl border border-slate-700 overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setAmmoAccordionOpen(prev => !prev)}
+              className="w-full flex items-center justify-between p-3 text-left"
+            >
+              <div className="flex flex-col">
+                <span className="text-sm font-bold text-blue-300">Ammo & Special Rounds</span>
+                <span className="text-[10px] text-slate-500 tracking-tight">Upgrades, serum, and ammo modifiers</span>
               </div>
-              <span className="text-white font-mono font-bold text-lg">{computed.finalRocketDmg.toFixed(1)}</span>
-            </div>
-            <input
-              type="range"
-              min="0"
-              max="20"
-              value={abilityPct}
-              onChange={(e) => setAbilityPct(Number(e.target.value))}
-              className="w-full h-2 bg-slate-700 rounded-lg appearance-none accent-orange-500"
-            />
-          </div>
-
-          <div className="bg-slate-900/40 rounded-xl border border-slate-700 p-3">
-            <label className="block text-[10px] font-bold mb-2 text-slate-500 uppercase">Ammo Upgrades (Multi-Select)</label>
-            <div className="grid grid-cols-4 gap-2">
-              <button
-                type="button"
-                onClick={clearAmmo}
-                className={`ammo-btn p-2 rounded text-xs border transition-all ${
-                  baseAmmoActive
-                    ? 'bg-blue-600 border-transparent'
-                    : 'bg-slate-700 border-transparent hover:border-blue-500'
-                }`}
-              >
-                Base
-              </button>
-              {AMMO_OPTIONS.map(option => {
-                const active = activeAmmoMods.includes(option.value);
-                return (
+              <ChevronDown className={`h-4 w-4 text-slate-400 transition-transform ${ammoAccordionOpen ? 'rotate-180' : ''}`} />
+            </button>
+            <div
+              className={`px-3 pb-3 space-y-3 transition-all overflow-hidden ${
+                ammoAccordionOpen ? 'max-h-[1200px] opacity-100' : 'max-h-0 opacity-0 pointer-events-none'
+              }`}
+            >
+              <div className="bg-slate-900/40 rounded-xl border border-slate-700 p-3">
+                <label className="block text-[10px] font-bold mb-2 text-slate-500 uppercase">Ammo Upgrades (Multi-Select)</label>
+                <div className="grid grid-cols-4 gap-2">
                   <button
-                    key={option.value}
                     type="button"
-                    onClick={() => toggleAmmo(option.value)}
+                    onClick={clearAmmo}
                     className={`ammo-btn p-2 rounded text-xs border transition-all ${
-                      active
-                        ? 'bg-blue-600 border-blue-400'
+                      baseAmmoActive
+                        ? 'bg-blue-600 border-transparent'
                         : 'bg-slate-700 border-transparent hover:border-blue-500'
                     }`}
                   >
-                    {option.label}
+                    Base
                   </button>
-                );
-              })}
-            </div>
-          </div>
-
-          <div className="bg-slate-900/40 rounded-xl border border-slate-700 p-3">
-            <div className="flex items-center justify-between">
-              <div className="flex flex-col">
-                <label className="text-xs font-semibold text-slate-300">Super Serum (Active)</label>
-                <span className="text-[9px] text-slate-500">+87.5% fire rate, -15% weapon damage</span>
+                  {AMMO_OPTIONS.map(option => {
+                    const active = activeAmmoMods.includes(option.value);
+                    return (
+                      <button
+                        key={option.value}
+                        type="button"
+                        onClick={() => toggleAmmo(option.value)}
+                        className={`ammo-btn p-2 rounded text-xs border transition-all ${
+                          active
+                            ? 'bg-blue-600 border-blue-400'
+                            : 'bg-slate-700 border-transparent hover:border-blue-500'
+                        }`}
+                      >
+                        {option.label}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
-              <label className="relative inline-flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
-                  className="sr-only peer"
-                  checked={superSerumActive}
-                  onChange={(e) => setSuperSerumActive(e.target.checked)}
-                />
-                <div className="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500"></div>
-              </label>
-            </div>
-            <div className="mt-2 text-[10px] text-slate-400 font-mono">
-              Includes passive +25% and active +50% rate multiplier.
-            </div>
-          </div>
 
-          <div className="bg-slate-900/40 rounded-xl border border-slate-700 p-3">
-            <div className="flex items-center justify-between">
-              <div className="flex flex-col">
-                <label className="text-xs font-semibold text-slate-300 flex items-center gap-2">
-                  <img
-                    src={CHAINGUN_ICON}
-                    alt="Chaingun"
-                    className="h-5 w-5 rounded-md border border-slate-700 bg-slate-900/70 p-[2px]"
-                    loading="lazy"
-                  />
-                  Chaingun
-                </label>
-                <span className="text-[9px] text-slate-500">0.4% per shot, up to 100 stacks</span>
+              <div className="bg-slate-900/40 rounded-xl border border-slate-700 p-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex flex-col">
+                    <label className="text-xs font-semibold text-slate-300 flex items-center gap-2">
+                      <img
+                        src={SUPER_SERUM_ICON}
+                        alt="Super Serum"
+                        className="h-4 w-4 rounded-full border border-slate-700 bg-slate-900/70 p-[1px]"
+                        loading="lazy"
+                      />
+                      Super Serum (Active)
+                    </label>
+                    <span className="text-[9px] text-slate-500">On Use: Increase your total Attack Speed by 50% but deal 15% reduced Weapon Damage and Healing for 5s. Reload all your Ammo. CD: 30s</span>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      className="sr-only peer"
+                      checked={superSerumActive}
+                      onChange={(e) => setSuperSerumActive(e.target.checked)}
+                    />
+                    <div className="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500"></div>
+                  </label>
+                </div>
+                <div className="mt-2 text-[10px] text-slate-400 font-mono">
+                  Effect summary used in the simulation.
+                </div>
               </div>
-              <label className="relative inline-flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
-                  className="sr-only peer"
-                  checked={chaingunEnabled}
-                  onChange={(e) => setChaingunEnabled(e.target.checked)}
-                />
-                <div className="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-500"></div>
-              </label>
-            </div>
-            <div className="mt-2 text-[10px] text-slate-400 font-mono">
-              Stacks build per bullet while firing; reset on stop/reload.
-            </div>
-          </div>
 
-          <div className="bg-slate-900/40 rounded-xl border border-slate-700 p-3">
-            <div className="flex justify-between mb-1 items-end">
-              <div>
-                <label className="text-xs font-medium block text-slate-400 uppercase flex items-center gap-2">
-                  <img
-                    src={MAN_ON_RUN_ICON}
-                    alt="Man on the Run"
-                    className="h-5 w-5 rounded-md border border-slate-700 bg-slate-900/70 p-[2px]"
-                    loading="lazy"
-                  />
-                  Man on the Run (Max Ammo)
+              <div className="bg-slate-900/40 rounded-xl border border-slate-700 p-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex flex-col">
+                    <label className="text-xs font-semibold text-slate-300 flex items-center gap-2">
+                      <img
+                        src={CHAINGUN_ICON}
+                        alt="Chaingun"
+                        className="h-5 w-5 rounded-md border border-slate-700 bg-slate-900/70 p-[2px]"
+                        loading="lazy"
+                      />
+                      Chaingun
+                    </label>
+                    <span className="text-[9px] text-slate-500">While continuously shooting Pulse Rifle, each shot grants 0.4% Weapon Power, stacking up to 100 times.</span>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      className="sr-only peer"
+                      checked={chaingunEnabled}
+                      onChange={(e) => setChaingunEnabled(e.target.checked)}
+                    />
+                    <div className="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-500"></div>
+                  </label>
+                </div>
+                <div className="mt-2 text-[10px] text-slate-400 font-mono">
+                  Stacks build per bullet while firing; reset on stop/reload.
+                </div>
+              </div>
+
+              <div className="bg-slate-900/40 rounded-xl border border-slate-700 p-3">
+                <div className="flex justify-between mb-1 items-end">
+                  <div>
+                    <label className="text-xs font-medium block text-slate-400 uppercase flex items-center gap-2">
+                      <img
+                        src={MAN_ON_RUN_ICON}
+                        alt="Man on the Run"
+                        className="h-5 w-5 rounded-md border border-slate-700 bg-slate-900/70 p-[2px]"
+                        loading="lazy"
+                      />
+                  Man on the Run
                 </label>
                 <span className="text-xs text-blue-400 font-bold">+{manOnRunPct}%</span>
               </div>
-              <span className="text-white font-mono font-bold text-lg">
-                {Math.round(BASE_AMMO * (1 + totalAmmoBonus) * (1 + manOnRunPct / 100))}
-              </span>
-            </div>
+                  <span className="text-white font-mono font-bold text-lg">
+                    {Math.round(BASE_AMMO * (1 + totalAmmoBonus) * (1 + manOnRunPct / 100))}
+                  </span>
+                </div>
             <input
               type="range"
               min="0"
@@ -575,65 +590,118 @@ export default function SoldierPulseRifle() {
               onChange={(e) => setManOnRunPct(Number(e.target.value))}
               className="w-full h-2 bg-slate-700 rounded-lg appearance-none accent-blue-500"
             />
+            <div className="mt-2 text-[10px] text-slate-400 font-mono">
+              During Sprint, restore 10% of your Ammo every 1s and increase your Max Ammo by 10% until you reload, stacking up to 10 times.
+            </div>
+              </div>
+            </div>
           </div>
 
           <div className="bg-slate-900/50 rounded-xl border border-slate-700 overflow-hidden">
-            <div className="flex items-center justify-between p-3 border-b border-slate-700">
+            <button
+              type="button"
+              onClick={() => setRocketAccordionOpen(prev => !prev)}
+              className="w-full flex items-center justify-between p-3 text-left"
+            >
               <div className="flex flex-col">
                 <span className="text-sm font-bold text-orange-400">Helix Rocket</span>
                 <span className="text-[10px] text-slate-500 tracking-tight">6s Interval / 0.5s Cast</span>
               </div>
-              <label className="relative inline-flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
-                  className="sr-only peer"
-                  checked={rocketEnabled}
-                  onChange={(e) => setRocketEnabled(e.target.checked)}
-                />
-                <div className="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-orange-500"></div>
-              </label>
-            </div>
-
-            <div className={`p-3 space-y-3 transition-all ${rocketEnabled ? 'opacity-100' : 'opacity-40 pointer-events-none'}`}>
-              <div className="flex items-center justify-between group">
-                <div className="flex flex-col">
-                  <label className="text-xs font-semibold text-slate-300 flex items-center gap-2">
-                    <img
-                      src={DOUBLE_HELIX_ICON}
-                      alt="Double Helix"
-                      className="h-4 w-4 rounded border border-slate-700 bg-slate-900/70 p-[1px]"
-                      loading="lazy"
-                    />
-                    Double Helix Power
-                  </label>
-                  <span className="text-[9px] text-slate-500">30% mini-rocket</span>
-                </div>
-                <input
-                  type="checkbox"
-                  className="w-4 h-4 rounded border-slate-600 bg-slate-800 text-orange-500 focus:ring-orange-500"
-                  checked={miniRocket}
-                  onChange={(e) => setMiniRocket(e.target.checked)}
-                />
+              <div className="flex items-center gap-3">
+                <ChevronDown className={`h-4 w-4 text-slate-400 transition-transform ${rocketAccordionOpen ? 'rotate-180' : ''}`} />
               </div>
-              <div className="flex items-center justify-between group">
-                <div className="flex flex-col">
-                  <label className="text-xs font-semibold text-slate-300 flex items-center gap-2">
-                    <img
-                      src={CRATERED_ICON}
-                      alt="Cratered"
-                      className="h-4 w-4 rounded border border-slate-700 bg-slate-900/70 p-[1px]"
-                      loading="lazy"
+            </button>
+
+            <div
+              className={`px-3 pb-3 space-y-3 transition-all overflow-hidden ${
+                rocketAccordionOpen ? 'max-h-[800px] opacity-100' : 'max-h-0 opacity-0 pointer-events-none'
+              }`}
+            >
+              <div className="space-y-3">
+                <div className="bg-slate-900/40 rounded-xl border border-slate-700 p-3 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex flex-col">
+                      <label className="text-xs font-semibold text-slate-300">Helix Rocket (Enable)</label>
+                      <span className="text-[9px] text-slate-500">Toggle Helix Rocket damage and options.</span>
+                    </div>
+                    <label
+                      className="relative inline-flex items-center cursor-pointer"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <input
+                        type="checkbox"
+                        className="sr-only peer"
+                        checked={rocketEnabled}
+                        onChange={(e) => setRocketEnabled(e.target.checked)}
+                      />
+                      <div className="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-orange-500"></div>
+                    </label>
+                  </div>
+
+                  <div>
+                    <div className="flex justify-between mb-1 items-end">
+                      <div>
+                        <label className="text-xs font-medium block text-slate-400 uppercase">Ability Power (per direct hit)</label>
+                        <span className="text-xs text-orange-400 font-bold">+{abilityPct * 5}%</span>
+                      </div>
+                      <span className="text-white font-mono font-bold text-lg">{computed.finalRocketDmg.toFixed(1)}</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0"
+                      max="20"
+                      value={abilityPct}
+                      onChange={(e) => setAbilityPct(Number(e.target.value))}
+                      className="w-full h-2 bg-slate-700 rounded-lg appearance-none accent-orange-500"
                     />
-                    Cratered Power
-                  </label>
-                  <span className="text-[9px] text-slate-500">+15% Explosion damage</span>
+                  </div>
                 </div>
-                <input
-                  type="checkbox"
-                  className="w-4 h-4 rounded border-slate-600 bg-slate-800 text-orange-500 focus:ring-orange-500"
-                  checked={explosionDmg}
-                  onChange={(e) => setExplosionDmg(e.target.checked)}
-                />
+
+                <div className="bg-slate-900/40 rounded-xl border border-slate-700 p-3">
+                  <div className="flex items-center justify-between group">
+                    <div className="flex flex-col">
+                      <label className="text-xs font-semibold text-slate-300 flex items-center gap-2">
+                        <img
+                          src={DOUBLE_HELIX_ICON}
+                          alt="Double Helix"
+                          className="h-4 w-4 rounded border border-slate-700 bg-slate-900/70 p-[1px]"
+                          loading="lazy"
+                        />
+                        Double Helix Power
+                      </label>
+                      <span className="text-[9px] text-slate-500">Helix Rocket fires a second homing Helix Rocket that deals 70% reduced damage.</span>
+                    </div>
+                    <input
+                      type="checkbox"
+                      className="w-4 h-4 rounded border-slate-600 bg-slate-800 text-orange-500 focus:ring-orange-500"
+                      checked={miniRocket}
+                      onChange={(e) => setMiniRocket(e.target.checked)}
+                    />
+                  </div>
+                </div>
+
+                <div className="bg-slate-900/40 rounded-xl border border-slate-700 p-3">
+                  <div className="flex items-center justify-between group">
+                    <div className="flex flex-col">
+                      <label className="text-xs font-semibold text-slate-300 flex items-center gap-2">
+                        <img
+                          src={CRATERED_ICON}
+                          alt="Cratered"
+                          className="h-4 w-4 rounded border border-slate-700 bg-slate-900/70 p-[1px]"
+                          loading="lazy"
+                        />
+                        Cratered Power
+                      </label>
+                      <span className="text-[9px] text-slate-500">Increase Helix Rocket explosion radius by 40% and explosion damage by 15%.</span>
+                    </div>
+                    <input
+                      type="checkbox"
+                      className="w-4 h-4 rounded border-slate-600 bg-slate-800 text-orange-500 focus:ring-orange-500"
+                      checked={explosionDmg}
+                      onChange={(e) => setExplosionDmg(e.target.checked)}
+                    />
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -664,8 +732,12 @@ export default function SoldierPulseRifle() {
         </div>
       </div>
 
-      <div className="h-[35vh] min-h-[240px] bg-slate-800 border-t-4 border-slate-950 flex flex-col shadow-[0_-10px_40px_rgba(0,0,0,0.5)] z-10 relative">
-        <div className="px-6 py-3 bg-slate-800 border-b border-slate-700 flex items-center justify-between shrink-0">
+      <div className={`bg-slate-800 border-t-4 border-slate-950 flex flex-col shadow-[0_-10px_40px_rgba(0,0,0,0.5)] z-10 relative ${visualizerOpen ? 'h-[35vh] min-h-[240px]' : 'h-auto'}`}>
+        <button
+          type="button"
+          onClick={() => setVisualizerOpen(prev => !prev)}
+          className="px-6 py-3 bg-slate-800 border-b border-slate-700 flex items-center justify-between shrink-0 text-left"
+        >
           <h3 className="text-lg font-semibold text-white flex items-center gap-2">
             <RotateCcw className="w-4 h-4 text-slate-400" />
             Cycle Visualizer
@@ -695,11 +767,14 @@ export default function SoldierPulseRifle() {
             <div className="text-xs text-slate-500 bg-slate-900/50 px-3 py-1 rounded-full border border-slate-700 font-mono hidden md:block">
               Scale: {maxDuration.toFixed(2)}s
             </div>
+            <ChevronDown className={`h-4 w-4 text-slate-400 transition-transform ${visualizerOpen ? 'rotate-180' : ''}`} />
           </div>
-        </div>
+        </button>
 
         <div
-          className={`flex-1 bg-slate-900 w-full relative overflow-x-auto custom-scrollbar select-none ${isDragging ? 'cursor-grabbing' : 'cursor-grab'}`}
+          className={`flex-1 bg-slate-900 w-full relative overflow-x-auto custom-scrollbar select-none transition-all ${
+            visualizerOpen ? 'max-h-[999px] opacity-100' : 'max-h-0 opacity-0 pointer-events-none'
+          } ${isDragging ? 'cursor-grabbing' : 'cursor-grab'}`}
           ref={scrollContainerRef}
           onMouseDown={handleMouseDown}
           onMouseLeave={handleMouseLeave}
@@ -817,6 +892,16 @@ export default function SoldierPulseRifle() {
 
 function TimelineTrack({ stats, maxTime, fireClass, glowClass }) {
   const [tooltip, setTooltip] = useState(null);
+  const [tooltipSize, setTooltipSize] = useState({ width: 0, height: 0 });
+  const tooltipRef = useRef(null);
+
+  useLayoutEffect(() => {
+    if (!tooltip || !tooltipRef.current) return;
+    const rect = tooltipRef.current.getBoundingClientRect();
+    if (rect.width || rect.height) {
+      setTooltipSize({ width: rect.width, height: rect.height });
+    }
+  }, [tooltip]);
 
   if (!stats) return null;
 
@@ -830,23 +915,38 @@ function TimelineTrack({ stats, maxTime, fireClass, glowClass }) {
                   if (event.type === 'fire') {
                     const isAlternated = (event.bulletIndex / 5) % 2 === 0;
                     const isHovered = tooltip?.idx === idx;
+                    const isSerumTrigger = event.serumTrigger;
+                    const isSerumActive = event.serumActiveBullet;
                     return (
                       <div 
                         key={idx}
                         className="absolute top-0 h-full flex justify-center z-10 hover:z-30 group"
                         style={{ left: `${leftPos}%`, width: '12px', transform: 'translateX(-50%)' }}
                         onMouseEnter={(e) => {
-                          const rect = e.currentTarget.getBoundingClientRect();
                           setTooltip({
                             idx,
-                            x: rect.left + rect.width / 2,
-                            y: rect.top,
+                            x: e.clientX,
+                            y: e.clientY,
+                            data: event
+                          });
+                        }}
+                        onMouseMove={(e) => {
+                          setTooltip({
+                            idx,
+                            x: e.clientX,
+                            y: e.clientY,
                             data: event
                           });
                         }}
                       >
                         <div
-                          className={`h-full w-[2px] transition-all ${fireClass} ${glowClass ? `shadow-[0_0_8px_rgba(52,211,153,0.5)]` : ''} ${isHovered ? 'scale-y-110 w-[3px] brightness-125' : ''}`}
+                          className={`h-full transition-all ${
+                            isSerumTrigger
+                              ? 'w-[3px] bg-violet-300 shadow-[0_0_18px_rgba(167,139,250,0.95)]'
+                              : isSerumActive
+                                ? `w-[2px] bg-violet-300/90 shadow-[0_0_6px_rgba(167,139,250,0.55)]`
+                                : `w-[2px] ${fireClass}`
+                          } ${glowClass && !isSerumTrigger && !isSerumActive ? `shadow-[0_0_8px_rgba(52,211,153,0.5)]` : ''} ${isHovered ? 'scale-y-110 w-[3px] brightness-125' : ''}`}
                         />
                         
                         {event.showLabel && (
@@ -890,32 +990,54 @@ function TimelineTrack({ stats, maxTime, fireClass, glowClass }) {
         })}
       </div>
 
-      {tooltip && createPortal(
-        <div 
-          className="fixed z-[9999] pointer-events-none -translate-x-1/2 -translate-y-full pb-2"
-          style={{ left: tooltip.x, top: tooltip.y }}
-        >
-          <div className="bg-slate-800 border border-slate-600 rounded-lg p-2 shadow-xl whitespace-nowrap min-w-[100px]">
-            <div className="text-[10px] text-slate-400 font-bold uppercase mb-1 border-b border-slate-700 pb-1">
-              Bullet #{tooltip.data.bulletIndex}
+      {tooltip && (() => {
+        const tooltipLeft = Math.min(
+          Math.max(tooltip.x + 12, 8),
+          window.innerWidth - tooltipSize.width - 8
+        );
+        const tooltipTop = Math.min(
+          Math.max(tooltip.y - tooltipSize.height - 16, 8),
+          window.innerHeight - tooltipSize.height - 8
+        );
+        return createPortal(
+          <div 
+            className="fixed z-[9999] pointer-events-none pb-2"
+            style={{ left: tooltipLeft, top: tooltipTop }}
+          >
+            <div
+              ref={tooltipRef}
+              className="bg-slate-800 border border-slate-600 rounded-lg p-2 shadow-xl whitespace-nowrap min-w-[100px] relative"
+            >
+              <div className="text-[10px] text-slate-400 font-bold uppercase mb-1 border-b border-slate-700 pb-1">
+                Bullet #{tooltip.data.bulletIndex}
+              </div>
+              <div className="flex justify-between gap-4 items-center">
+                <span className="text-[9px] text-slate-500 uppercase">Damage</span>
+                <span className="text-xs font-mono font-bold text-white">{tooltip.data.damage.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between gap-4 items-center">
+                <span className="text-[9px] text-slate-500 uppercase">Total</span>
+                <span className="text-xs font-mono font-bold text-emerald-400">{tooltip.data.cumulative.toFixed(1)}</span>
+              </div>
+              <div className="flex justify-between gap-4 items-center">
+                <span className="text-[9px] text-slate-500 uppercase">Time</span>
+                <span className="text-xs font-mono text-slate-300">{(tooltip.data.start / TPS).toFixed(3)}s</span>
+              </div>
+              {tooltip.data.serumTrigger && (
+                <div className="mt-1 text-[9px] font-semibold uppercase text-violet-300">
+                  Optimal time to activate Serum
+                </div>
+              )}
+              {!tooltip.data.serumTrigger && tooltip.data.serumActiveBullet && (
+                <div className="mt-1 text-[9px] font-semibold uppercase text-violet-300">
+                  Serum active
+                </div>
+              )}
             </div>
-            <div className="flex justify-between gap-4 items-center">
-              <span className="text-[9px] text-slate-500 uppercase">Damage</span>
-              <span className="text-xs font-mono font-bold text-white">{tooltip.data.damage.toFixed(2)}</span>
-            </div>
-            <div className="flex justify-between gap-4 items-center">
-              <span className="text-[9px] text-slate-500 uppercase">Total</span>
-              <span className="text-xs font-mono font-bold text-emerald-400">{tooltip.data.cumulative.toFixed(1)}</span>
-            </div>
-            <div className="flex justify-between gap-4 items-center">
-              <span className="text-[9px] text-slate-500 uppercase">Time</span>
-              <span className="text-xs font-mono text-slate-300">{(tooltip.data.start / TPS).toFixed(3)}s</span>
-            </div>
-          </div>
-          <div className="w-2 h-2 bg-slate-800 border-r border-b border-slate-600 rotate-45 mx-auto -mt-1"></div>
-        </div>,
-        document.body
-      )}
+          </div>,
+          document.body
+        );
+      })()}
     </>
   );
 }
