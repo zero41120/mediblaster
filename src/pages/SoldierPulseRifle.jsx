@@ -738,13 +738,13 @@ export default function SoldierPulseRifle() {
                     {/* Man on Run */}
                     <div className="bg-slate-900/40 rounded-xl border border-slate-700 p-3">
                       <div className="flex justify-between mb-1 items-end">
-                        <label className="text-xs font-medium block text-slate-400 uppercase flex items-center gap-2">
+                        <label className="text-xs font-semibold text-slate-300 flex items-center gap-2">
                           <img
                             src={MAN_ON_RUN_ICON}
                             alt="Man on the Run"
                             className="h-4 w-4 rounded-md border border-slate-700 bg-slate-900/70 p-[2px]"
                           />
-                          Run ({manOnRunPct}%)
+                          Man on the Run ({manOnRunPct}%)
                         </label>
                         <span className="text-white font-mono font-bold text-xs">
                           {Math.round(
