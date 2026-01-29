@@ -1,5 +1,17 @@
-import { BarChart3, Clock, Crosshair, Info, RotateCcw, Settings, Zap, ZoomIn, ZoomOut } from 'lucide-react';
-import { useMemo, useRef, useState } from 'react';
+import {
+  ArrowLeft,
+  BarChart3,
+  ChevronDown,
+  Clock,
+  Crosshair,
+  Info,
+  RotateCcw,
+  Settings,
+  Zap,
+  ZoomIn,
+  ZoomOut,
+} from "lucide-react";
+import { useMemo, useRef, useState } from "react";
 
 export default function MediblasterPage() {
   // Default parameters
@@ -12,6 +24,7 @@ export default function MediblasterPage() {
   });
 
   const [zoomLevel, setZoomLevel] = useState(1);
+  const [visualizerOpen, setVisualizerOpen] = useState(true);
 
   // Drag-to-scroll state
   const scrollContainerRef = useRef(null);
@@ -25,15 +38,16 @@ export default function MediblasterPage() {
   // Calculate current clip size based on modifiers
   const currentClipSize = useMemo(() => {
     let multiplier = 1.0;
-    if (params.clipMods.m20) multiplier += 0.20;
+    if (params.clipMods.m20) multiplier += 0.2;
     if (params.clipMods.m25) multiplier += 0.25;
-    if (params.clipMods.m40) multiplier += 0.40;
+    if (params.clipMods.m40) multiplier += 0.4;
     return Math.floor(BASE_CLIP * multiplier);
   }, [params.clipMods]);
 
   // Core calculation logic extracted for reuse
   const calculateCycle = (config) => {
-    const { bulletValue, weaponPower, attackSpeed, clipSize, withReload } = config;
+    const { bulletValue, weaponPower, attackSpeed, clipSize, withReload } =
+      config;
 
     const VOLLEY_SIZE = 12;
     const INTRA_BURST_INTERVAL_FRAMES = 0.03 * TPS; // 1.8 frames
@@ -53,12 +67,22 @@ export default function MediblasterPage() {
 
     // 1. Reload Phase
     if (withReload) {
-      timeline.push({ type: 'reload', start: currentTime, duration: RELOAD_FRAMES, label: 'Reload' });
+      timeline.push({
+        type: "reload",
+        start: currentTime,
+        duration: RELOAD_FRAMES,
+        label: "Reload",
+      });
       currentTime += RELOAD_FRAMES;
     }
 
     // 2. Cocking Phase
-    timeline.push({ type: 'cocking', start: currentTime, duration: cockingFrames, label: 'Cock' });
+    timeline.push({
+      type: "cocking",
+      start: currentTime,
+      duration: cockingFrames,
+      label: "Cock",
+    });
     currentTime += cockingFrames;
 
     // 3. Firing Loop
@@ -70,18 +94,23 @@ export default function MediblasterPage() {
 
       // Intra-burst interval
       if (!isFirstBulletOfVolley) {
-        timeline.push({ type: 'interval', start: currentTime, duration: INTRA_BURST_INTERVAL_FRAMES, label: '' });
+        timeline.push({
+          type: "interval",
+          start: currentTime,
+          duration: INTRA_BURST_INTERVAL_FRAMES,
+          label: "",
+        });
         currentTime += INTRA_BURST_INTERVAL_FRAMES;
       }
 
       // Fire Event
       damageAccumulated += damagePerShot;
       timeline.push({
-        type: 'fire',
+        type: "fire",
         start: currentTime,
         duration: 0,
         damage: damageAccumulated,
-        bulletIndex: i
+        bulletIndex: i,
       });
 
       // Recovery Phase
@@ -89,7 +118,12 @@ export default function MediblasterPage() {
       const hasAmmoLeft = i < clipSize;
 
       if (isEndOfVolley && hasAmmoLeft) {
-        timeline.push({ type: 'recovery', start: currentTime, duration: singleRecoveryFrame, label: 'Rec' });
+        timeline.push({
+          type: "recovery",
+          start: currentTime,
+          duration: singleRecoveryFrame,
+          label: "Rec",
+        });
         currentTime += singleRecoveryFrame;
       }
     }
@@ -98,42 +132,59 @@ export default function MediblasterPage() {
     const totalDamage = clipSize * bulletValue * weaponPowerPercent;
     const dps = totalDamage * (TPS / currentTime);
 
-    return { timeline, totalTimeSeconds, totalFrames: currentTime, totalDamage, dps };
+    return {
+      timeline,
+      totalTimeSeconds,
+      totalFrames: currentTime,
+      totalDamage,
+      dps,
+    };
   };
 
   // Generate stats for Base Profile (Reference)
   // NOW DEPENDENT on params.bulletValue so it updates when mode changes
-  const baseStats = useMemo(() => calculateCycle({
-    bulletValue: params.bulletValue,
-    weaponPower: 100,
-    attackSpeed: 100,
-    clipSize: BASE_CLIP,
-    withReload: true
-  }), [params.bulletValue]);
+  const baseStats = useMemo(
+    () =>
+      calculateCycle({
+        bulletValue: params.bulletValue,
+        weaponPower: 100,
+        attackSpeed: 100,
+        clipSize: BASE_CLIP,
+        withReload: true,
+      }),
+    [params.bulletValue],
+  );
 
   // Generate stats for Current Profile (User Config)
-  const currentStats = useMemo(() => calculateCycle({
-    bulletValue: params.bulletValue,
-    weaponPower: params.weaponPower,
-    attackSpeed: params.attackSpeed,
-    clipSize: currentClipSize,
-    withReload: params.withReload
-  }), [params, currentClipSize]);
+  const currentStats = useMemo(
+    () =>
+      calculateCycle({
+        bulletValue: params.bulletValue,
+        weaponPower: params.weaponPower,
+        attackSpeed: params.attackSpeed,
+        clipSize: currentClipSize,
+        withReload: params.withReload,
+      }),
+    [params, currentClipSize],
+  );
 
   // Determine the maximum time scale for the comparison view
-  const maxDuration = Math.max(baseStats.totalTimeSeconds, currentStats.totalTimeSeconds);
+  const maxDuration = Math.max(
+    baseStats.totalTimeSeconds,
+    currentStats.totalTimeSeconds,
+  );
 
   const handleParamChange = (key, value) => {
-    setParams(prev => ({
+    setParams((prev) => ({
       ...prev,
-      [key]: key === 'withReload' ? value : Number(value)
+      [key]: key === "withReload" ? value : Number(value),
     }));
   };
 
   const toggleClipMod = (mod) => {
-    setParams(prev => ({
+    setParams((prev) => ({
       ...prev,
-      clipMods: { ...prev.clipMods, [mod]: !prev.clipMods[mod] }
+      clipMods: { ...prev.clipMods, [mod]: !prev.clipMods[mod] },
     }));
   };
 
@@ -148,7 +199,7 @@ export default function MediblasterPage() {
       // For this implementation we'll just update state and let CSS overflow handling do the rest
 
       const zoomDelta = e.deltaY * -0.001;
-      setZoomLevel(prev => Math.min(Math.max(prev + zoomDelta, 1), 5));
+      setZoomLevel((prev) => Math.min(Math.max(prev + zoomDelta, 1), 5));
     }
   };
 
@@ -176,30 +227,32 @@ export default function MediblasterPage() {
 
   return (
     <div className="h-screen bg-slate-900 text-slate-100 font-sans flex flex-col overflow-hidden">
-
       {/* Upper Section: Controls and Data (Scrollable) */}
       <div className="flex-1 overflow-y-auto p-4 md:p-8 custom-scrollbar">
         <div className="max-w-7xl mx-auto space-y-6">
-
           {/* Header */}
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between pb-4 border-b border-slate-700">
             <div className="flex items-center space-x-3">
               <BarChart3 className="w-8 h-8 text-emerald-400" />
               <div>
-                <h1 className="text-2xl font-bold text-white">Juno - Mediblaster</h1>
-                <p className="text-slate-400 text-sm">Visualizing weapon cycle mechanics and DPS output</p>
+                <h1 className="text-2xl font-bold text-white">
+                  Juno - Mediblaster
+                </h1>
+                <p className="text-slate-400 text-sm">
+                  Visualizing weapon cycle mechanics and DPS output
+                </p>
               </div>
             </div>
             <a
               href="#/"
               className="inline-flex items-center justify-center rounded-full border border-slate-700 bg-slate-800/80 px-4 py-2 text-xs font-semibold uppercase tracking-wider text-slate-200 transition hover:border-emerald-400 hover:text-emerald-200"
             >
+              <ArrowLeft className="h-4 w-4 mr-2" />
               Back to landing
             </a>
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-
             {/* Controls Panel */}
             <div className="bg-slate-800 rounded-xl p-6 shadow-lg border border-slate-700 space-y-6 h-fit">
               <div className="flex items-center space-x-2 text-lg font-semibold text-emerald-400">
@@ -208,7 +261,6 @@ export default function MediblasterPage() {
               </div>
 
               <div className="space-y-6">
-
                 {/* Bullet Value Toggle */}
                 <div className="space-y-1">
                   <div className="flex justify-between text-sm">
@@ -216,21 +268,21 @@ export default function MediblasterPage() {
                   </div>
                   <div className="flex bg-slate-700 rounded-lg p-1 border border-slate-600">
                     <button
-                      onClick={() => handleParamChange('bulletValue', 6)}
+                      onClick={() => handleParamChange("bulletValue", 6)}
                       className={`flex-1 py-1.5 text-sm font-medium rounded-md transition-all ${
                         params.bulletValue === 6
-                          ? 'bg-emerald-500 text-white shadow-sm'
-                          : 'text-slate-400 hover:text-slate-200'
+                          ? "bg-emerald-500 text-white shadow-sm"
+                          : "text-slate-400 hover:text-slate-200"
                       }`}
                     >
                       Healing (6.0)
                     </button>
                     <button
-                      onClick={() => handleParamChange('bulletValue', 7.5)}
+                      onClick={() => handleParamChange("bulletValue", 7.5)}
                       className={`flex-1 py-1.5 text-sm font-medium rounded-md transition-all ${
                         params.bulletValue === 7.5
-                          ? 'bg-emerald-500 text-white shadow-sm'
-                          : 'text-slate-400 hover:text-slate-200'
+                          ? "bg-emerald-500 text-white shadow-sm"
+                          : "text-slate-400 hover:text-slate-200"
                       }`}
                     >
                       Damage (7.5)
@@ -242,16 +294,20 @@ export default function MediblasterPage() {
                 <ControlInput
                   label="Weapon Power"
                   value={params.weaponPower}
-                  onChange={(v) => handleParamChange('weaponPower', v)}
-                  min={100} max={200} step={5}
+                  onChange={(v) => handleParamChange("weaponPower", v)}
+                  min={100}
+                  max={200}
+                  step={5}
                   unit="%"
                   tickStep={10}
                 />
                 <ControlInput
                   label="Attack Speed"
                   value={params.attackSpeed}
-                  onChange={(v) => handleParamChange('attackSpeed', v)}
-                  min={100} max={200} step={5}
+                  onChange={(v) => handleParamChange("attackSpeed", v)}
+                  min={100}
+                  max={200}
+                  step={5}
                   unit="%"
                   tickStep={10}
                 />
@@ -259,26 +315,50 @@ export default function MediblasterPage() {
                 {/* New Clip Size Controls */}
                 <div className="space-y-2">
                   <div className="flex justify-between items-end text-sm">
-                    <label className="text-slate-300 font-medium pb-0.5">Clip Size Modifiers</label>
+                    <label className="text-slate-300 font-medium pb-0.5">
+                      Clip Size Modifiers
+                    </label>
                     <div className="text-right leading-none">
-                      <span className="text-emerald-400 font-mono font-bold text-base">{currentClipSize}</span>
-                      <span className="text-slate-500 text-[10px] ml-1.5 uppercase font-medium">/ {BASE_CLIP} Base</span>
+                      <span className="text-emerald-400 font-mono font-bold text-base">
+                        {currentClipSize}
+                      </span>
+                      <span className="text-slate-500 text-[10px] ml-1.5 uppercase font-medium">
+                        / {BASE_CLIP} Base
+                      </span>
                     </div>
                   </div>
                   <div className="grid grid-cols-3 gap-2">
-                    <ClipToggle label="+20%" active={params.clipMods.m20} onClick={() => toggleClipMod('m20')} />
-                    <ClipToggle label="+25%" active={params.clipMods.m25} onClick={() => toggleClipMod('m25')} />
-                    <ClipToggle label="+40%" active={params.clipMods.m40} onClick={() => toggleClipMod('m40')} />
+                    <ClipToggle
+                      label="+20%"
+                      active={params.clipMods.m20}
+                      onClick={() => toggleClipMod("m20")}
+                    />
+                    <ClipToggle
+                      label="+25%"
+                      active={params.clipMods.m25}
+                      onClick={() => toggleClipMod("m25")}
+                    />
+                    <ClipToggle
+                      label="+40%"
+                      active={params.clipMods.m40}
+                      onClick={() => toggleClipMod("m40")}
+                    />
                   </div>
                 </div>
 
                 <div className="flex items-center justify-between p-3 bg-slate-700/50 rounded-lg">
-                  <span className="text-sm font-medium text-slate-300">With Reload Cycle</span>
+                  <span className="text-sm font-medium text-slate-300">
+                    With Reload Cycle
+                  </span>
                   <button
-                    onClick={() => handleParamChange('withReload', !params.withReload)}
-                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 focus:ring-offset-slate-900 ${params.withReload ? 'bg-emerald-500' : 'bg-slate-600'}`}
+                    onClick={() =>
+                      handleParamChange("withReload", !params.withReload)
+                    }
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 focus:ring-offset-slate-900 ${params.withReload ? "bg-emerald-500" : "bg-slate-600"}`}
                   >
-                    <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${params.withReload ? 'translate-x-6' : 'translate-x-1'}`} />
+                    <span
+                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${params.withReload ? "translate-x-6" : "translate-x-1"}`}
+                    />
                   </button>
                 </div>
               </div>
@@ -286,7 +366,6 @@ export default function MediblasterPage() {
 
             {/* Stats & Mechanics */}
             <div className="lg:col-span-2 space-y-6">
-
               {/* Stats Cards */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <StatCard
@@ -310,7 +389,9 @@ export default function MediblasterPage() {
                   label="Cycle Time"
                   value={`${currentStats.totalTimeSeconds.toFixed(2)}s`}
                   subtext={`Base: ${baseStats.totalTimeSeconds.toFixed(2)}s`}
-                  trend={currentStats.totalTimeSeconds - baseStats.totalTimeSeconds}
+                  trend={
+                    currentStats.totalTimeSeconds - baseStats.totalTimeSeconds
+                  }
                   inverseTrend
                   baseValue={baseStats.totalTimeSeconds}
                 />
@@ -318,10 +399,16 @@ export default function MediblasterPage() {
 
               {/* Mechanics Breakdown */}
               <div className="bg-slate-800 rounded-xl p-6 border border-slate-700 shadow-sm">
-                <h3 className="text-sm font-semibold text-slate-400 mb-4 uppercase tracking-wider border-b border-slate-700 pb-2">Cycle Mechanics</h3>
+                <h3 className="text-sm font-semibold text-slate-400 mb-4 uppercase tracking-wider border-b border-slate-700 pb-2">
+                  Cycle Mechanics
+                </h3>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
                   <MechanicBox label="Bullets/Volley" value={12} />
-                  <MechanicBox label="Intra-Burst" value="1.8 frames" sub="(Fixed)" />
+                  <MechanicBox
+                    label="Intra-Burst"
+                    value="1.8 frames"
+                    sub="(Fixed)"
+                  />
                   <MechanicBox
                     label="Recovery"
                     value={`${Math.ceil((0.45 * TPS) / (params.attackSpeed / 100))} frames`}
@@ -348,23 +435,30 @@ export default function MediblasterPage() {
                   View original analysis thread on r/JunoMains
                 </a>
               </div>
-
             </div>
           </div>
         </div>
       </div>
 
       {/* Bottom Section: Timeline (Comparative Video Editor Style) */}
-      <div className="h-[35vh] min-h-[250px] bg-slate-800 border-t-4 border-slate-950 flex flex-col shadow-[0_-10px_40px_rgba(0,0,0,0.5)] z-10 relative">
-
+      <div
+        className={`bg-slate-800 border-t-4 border-slate-950 flex flex-col shadow-[0_-10px_40px_rgba(0,0,0,0.5)] z-10 relative ${visualizerOpen ? "h-[35vh] min-h-[250px]" : "h-auto"}`}
+      >
         {/* Timeline Toolbar */}
-        <div className="px-6 py-3 bg-slate-800 border-b border-slate-700 flex items-center justify-between shrink-0">
+        <button
+          type="button"
+          className="px-6 py-3 bg-slate-800 border-b border-slate-700 flex items-center justify-between shrink-0"
+          onClick={() => setVisualizerOpen((prev) => !prev)}
+        >
           <h3 className="text-lg font-semibold text-white flex items-center gap-2">
             <RotateCcw className="w-4 h-4 text-slate-400" />
             Cycle Comparison
           </h3>
 
-          <div className="flex items-center space-x-4">
+          <div
+            className="flex items-center space-x-4"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="hidden md:flex space-x-4 text-xs font-normal bg-slate-800 p-2 rounded-lg border border-slate-700">
               <LegendItem color="bg-red-500" label="Reload" />
               <LegendItem color="bg-orange-500" label="Cock" />
@@ -384,17 +478,22 @@ export default function MediblasterPage() {
                 className="w-24 h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-emerald-500"
               />
               <ZoomIn className="w-3 h-3 text-slate-400" />
-              <span className="text-xs font-mono text-emerald-400 w-8 text-right">{zoomLevel.toFixed(1)}x</span>
+              <span className="text-xs font-mono text-emerald-400 w-8 text-right">
+                {zoomLevel.toFixed(1)}x
+              </span>
             </div>
             <div className="text-xs text-slate-500 bg-slate-900/50 px-3 py-1 rounded-full border border-slate-700 font-mono hidden md:block">
               Scale: {maxDuration.toFixed(2)}s
             </div>
           </div>
-        </div>
+          <ChevronDown
+            className={`h-4 w-4 text-slate-400 transition-transform ${visualizerOpen ? "rotate-180" : ""}`}
+          />
+        </button>
 
         {/* Timeline Track Area with Horizontal Scroll & Zoom Logic */}
         <div
-          className={`flex-1 bg-slate-900 w-full relative overflow-x-auto custom-scrollbar select-none ${isDragging ? 'cursor-grabbing' : 'cursor-grab'}`}
+          className={`flex-1 bg-slate-900 w-full relative overflow-x-auto custom-scrollbar select-none transition-all ${visualizerOpen ? "max-h-[999px] opacity-100" : "max-h-0 opacity-0 pointer-events-none"} ${isDragging ? "cursor-grabbing" : "cursor-grab"}`}
           ref={scrollContainerRef}
           onMouseDown={handleMouseDown}
           onMouseLeave={handleMouseLeave}
@@ -406,15 +505,16 @@ export default function MediblasterPage() {
             className="h-full p-4 md:p-6 flex flex-col gap-2 justify-center relative min-w-full"
             style={{ width: `${zoomLevel * 100}%` }}
           >
-
             {/* Common Time Axis */}
             <div className="absolute top-0 inset-x-0 h-full w-full pointer-events-none z-0">
               {/* Grid lines - Increase density based on zoom */}
-              {Array.from({ length: Math.ceil(maxDuration * (zoomLevel >= 3 ? 2 : 1)) + 1 }).map((_, i) => {
+              {Array.from({
+                length: Math.ceil(maxDuration * (zoomLevel >= 3 ? 2 : 1)) + 1,
+              }).map((_, i) => {
                 const sec = i / (zoomLevel >= 3 ? 2 : 1);
                 if (sec > maxDuration) return null;
 
-                let step = maxDuration > 20 ? 5 : (maxDuration > 10 ? 2 : 1);
+                let step = maxDuration > 20 ? 5 : maxDuration > 10 ? 2 : 1;
                 if (zoomLevel > 2) step = step / 2;
                 if (zoomLevel > 4) step = step / 2;
 
@@ -433,7 +533,9 @@ export default function MediblasterPage() {
             {/* Track 1: Base Profile (Static) */}
             <div className="relative w-full h-1/3 min-h-[60px] max-h-[100px] z-10 flex flex-col justify-center group mb-4">
               <div className="flex justify-between items-end mb-1 sticky left-0 px-1 w-full z-20 pointer-events-none">
-                <span className="text-xs text-slate-400 font-bold uppercase tracking-wider bg-slate-900/50 px-2 rounded backdrop-blur-sm shadow-sm">Base Profile (Static)</span>
+                <span className="text-xs text-slate-400 font-bold uppercase tracking-wider bg-slate-900/50 px-2 rounded backdrop-blur-sm shadow-sm">
+                  Base Profile (Static)
+                </span>
               </div>
 
               {/* Floating time label - Sticky to right edge of viewport */}
@@ -444,10 +546,7 @@ export default function MediblasterPage() {
               </div>
 
               <div className="w-full flex-1 bg-slate-900/80 rounded border border-slate-700 relative overflow-hidden group-hover:brightness-110 transition-all">
-                <TimelineTrack
-                  stats={baseStats}
-                  maxTime={maxDuration}
-                />
+                <TimelineTrack stats={baseStats} maxTime={maxDuration} />
               </div>
             </div>
 
@@ -455,7 +554,9 @@ export default function MediblasterPage() {
             <div className="relative w-full h-1/3 min-h-[60px] max-h-[100px] z-10 flex flex-col justify-center">
               {/* Sticky label header */}
               <div className="flex justify-between items-end mb-1 sticky left-0 px-1 w-full z-20 pointer-events-none">
-                <span className="text-xs text-emerald-500 font-bold uppercase tracking-wider bg-slate-900/50 px-2 rounded backdrop-blur-sm shadow-sm">Custom Configuration</span>
+                <span className="text-xs text-emerald-500 font-bold uppercase tracking-wider bg-slate-900/50 px-2 rounded backdrop-blur-sm shadow-sm">
+                  Custom Configuration
+                </span>
               </div>
 
               {/* Floating time label - Sticky to right edge of viewport */}
@@ -466,20 +567,19 @@ export default function MediblasterPage() {
               </div>
 
               <div className="w-full flex-1 bg-slate-900 rounded border border-emerald-500/30 relative overflow-hidden shadow-lg shadow-emerald-900/10">
-                <TimelineTrack
-                  stats={currentStats}
-                  maxTime={maxDuration}
-                />
+                <TimelineTrack stats={currentStats} maxTime={maxDuration} />
               </div>
             </div>
 
             {/* Bottom Time Labels */}
             <div className="h-6 w-full relative mt-1 select-none pointer-events-none">
-              {Array.from({ length: Math.ceil(maxDuration * (zoomLevel >= 3 ? 2 : 1)) + 1 }).map((_, i) => {
+              {Array.from({
+                length: Math.ceil(maxDuration * (zoomLevel >= 3 ? 2 : 1)) + 1,
+              }).map((_, i) => {
                 const sec = i / (zoomLevel >= 3 ? 2 : 1);
                 if (sec > maxDuration) return null;
 
-                let step = maxDuration > 20 ? 5 : (maxDuration > 10 ? 2 : 1);
+                let step = maxDuration > 20 ? 5 : maxDuration > 10 ? 2 : 1;
                 if (zoomLevel > 2) step = step / 2;
                 if (zoomLevel > 4) step = step / 2;
 
@@ -496,7 +596,6 @@ export default function MediblasterPage() {
                 );
               })}
             </div>
-
           </div>
         </div>
       </div>
@@ -533,7 +632,7 @@ function TimelineTrack({ stats, maxTime }) {
         const leftPos = (event.start / (maxTime * 60)) * 100; // 60 is TPS
         const width = (event.duration / (maxTime * 60)) * 100;
 
-        if (event.type === 'fire') {
+        if (event.type === "fire") {
           // Fire events are instant lines
           return (
             <div
@@ -542,15 +641,17 @@ function TimelineTrack({ stats, maxTime }) {
               style={{ left: `${leftPos}%` }}
             />
           );
-        } else if (event.type === 'interval') {
+        } else if (event.type === "interval") {
           // Empty space mostly, just visual spacing
           return null;
         } else {
           // Major Blocks - Uniform colors for both tracks
-          let colorClass = 'bg-gray-700';
-          if (event.type === 'reload') colorClass = 'bg-red-500 border-red-400';
-          if (event.type === 'cocking') colorClass = 'bg-orange-500 border-orange-400';
-          if (event.type === 'recovery') colorClass = 'bg-blue-500 border-blue-400';
+          let colorClass = "bg-gray-700";
+          if (event.type === "reload") colorClass = "bg-red-500 border-red-400";
+          if (event.type === "cocking")
+            colorClass = "bg-orange-500 border-orange-400";
+          if (event.type === "recovery")
+            colorClass = "bg-blue-500 border-blue-400";
 
           return (
             <div
@@ -558,7 +659,7 @@ function TimelineTrack({ stats, maxTime }) {
               className={`absolute top-0 h-full border-l border-r border-white/5 ${colorClass} flex items-center justify-center overflow-hidden`}
               style={{
                 left: `${leftPos}%`,
-                width: `${width}%`
+                width: `${width}%`,
               }}
             >
               {/* Only show label if wide enough relative to current view */}
@@ -575,7 +676,16 @@ function TimelineTrack({ stats, maxTime }) {
   );
 }
 
-function ControlInput({ label, value, onChange, min, max, step, unit, tickStep }) {
+function ControlInput({
+  label,
+  value,
+  onChange,
+  min,
+  max,
+  step,
+  unit,
+  tickStep,
+}) {
   const ticks = useMemo(() => {
     if (!tickStep) return [];
     const t = [];
@@ -591,12 +701,15 @@ function ControlInput({ label, value, onChange, min, max, step, unit, tickStep }
     <div className="space-y-1">
       <div className="flex justify-between text-sm">
         <label className="text-slate-300 font-medium">{label}</label>
-        <span className="text-emerald-400 font-mono">{value}{unit}</span>
+        <span className="text-emerald-400 font-mono">
+          {value}
+          {unit}
+        </span>
       </div>
       <div className="relative w-full h-6 flex items-center">
         {/* Custom Track Background with Ticks */}
         <div className="absolute inset-x-0 h-2 bg-slate-700 rounded-lg overflow-hidden pointer-events-none">
-          {ticks.map(tickVal => {
+          {ticks.map((tickVal) => {
             const percent = ((tickVal - min) / (max - min)) * 100;
             return (
               <div
@@ -628,8 +741,8 @@ function ClipToggle({ label, active, onClick }) {
       onClick={onClick}
       className={`flex items-center justify-center py-2 px-3 rounded-lg border text-xs font-bold transition-all ${
         active
-          ? 'bg-emerald-600 border-emerald-500 text-white shadow-md shadow-emerald-900/20'
-          : 'bg-slate-700/50 border-slate-600 text-slate-400 hover:bg-slate-700 hover:text-slate-200'
+          ? "bg-emerald-600 border-emerald-500 text-white shadow-md shadow-emerald-900/20"
+          : "bg-slate-700/50 border-slate-600 text-slate-400 hover:bg-slate-700 hover:text-slate-200"
       }`}
     >
       {label}
@@ -637,38 +750,48 @@ function ClipToggle({ label, active, onClick }) {
   );
 }
 
-function StatCard({ icon, label, value, subtext, trend, inverseTrend, baseValue }) {
+function StatCard({
+  icon,
+  label,
+  value,
+  subtext,
+  trend,
+  inverseTrend,
+  baseValue,
+}) {
   const isNeutral = trend === 0;
 
   // Logic for coloring the trend indicator
-  let trendColor = 'text-slate-500';
+  let trendColor = "text-slate-500";
   if (!isNeutral) {
     if (inverseTrend) {
       // trend < 0 (Negative) -> Good (Green)
-      trendColor = trend < 0 ? 'text-emerald-400' : 'text-red-400';
+      trendColor = trend < 0 ? "text-emerald-400" : "text-red-400";
     } else {
       // trend > 0 (Positive) -> Good (Green)
-      trendColor = trend > 0 ? 'text-emerald-400' : 'text-red-400';
+      trendColor = trend > 0 ? "text-emerald-400" : "text-red-400";
     }
   }
 
   const percent = baseValue && baseValue !== 0 ? (trend / baseValue) * 100 : 0;
   // Format percentage: +10.5% or -5.2%
-  const percentStr = (percent > 0 ? '+' : '') + percent.toFixed(1) + '%';
+  const percentStr = (percent > 0 ? "+" : "") + percent.toFixed(1) + "%";
 
   // Format raw trend: +100 or -100
   // toLocaleString handles the negative sign automatically. We just need to add '+' for positive.
   // We use maxFractionDigits to keep it clean.
-  const rawTrendStr = (trend > 0 ? '+' : '') + trend.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+  const rawTrendStr =
+    (trend > 0 ? "+" : "") +
+    trend.toLocaleString(undefined, {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 2,
+    });
 
   return (
     <div className="bg-slate-800 p-4 rounded-xl border border-slate-700 flex flex-col items-start shadow-md hover:border-slate-600 transition-colors h-full">
-
       {/* Row 1: Icon + Title */}
       <div className="flex items-center space-x-2 mb-3">
-        <div className="p-2 bg-slate-700/50 rounded-lg">
-          {icon}
-        </div>
+        <div className="p-2 bg-slate-700/50 rounded-lg">{icon}</div>
         <div className="text-sm text-slate-400 font-medium">{label}</div>
       </div>
 
@@ -680,7 +803,9 @@ function StatCard({ icon, label, value, subtext, trend, inverseTrend, baseValue 
 
       {/* Row 4: Gain (raw), Gain (%) */}
       {!isNeutral ? (
-        <div className={`text-xs font-medium ${trendColor} flex items-center space-x-1`}>
+        <div
+          className={`text-xs font-medium ${trendColor} flex items-center space-x-1`}
+        >
           <span>{rawTrendStr}</span>
           <span className="opacity-80">({percentStr})</span>
         </div>
@@ -703,7 +828,9 @@ function LegendItem({ color, label }) {
 function MechanicBox({ label, value, sub }) {
   return (
     <div className="bg-slate-800/50 p-3 rounded-lg border border-slate-700/50">
-      <div className="text-xs text-slate-400 uppercase tracking-wider mb-1">{label}</div>
+      <div className="text-xs text-slate-400 uppercase tracking-wider mb-1">
+        {label}
+      </div>
       <div className="text-lg font-bold text-white">{value}</div>
       {sub && <div className="text-[10px] text-slate-500">{sub}</div>}
     </div>
