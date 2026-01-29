@@ -32,7 +32,6 @@ const BASE_DAMAGE = 19;
 const BASE_RATE = 9;
 const BASE_AMMO = 30;
 const RELOAD = 1.5;
-const ROCKET_INTERVAL = 6;
 const ROCKET_CAST = 0.5;
 const FIRE_RATE_MAX = 20;
 const HALF_SECOND = 0.5;
@@ -253,17 +252,17 @@ export default function SoldierPulseRifle() {
           serumActiveBullet,
           isMaxChaingun,
         });
+        const intervalRate = isSerumPhase ? serumRate : baseRate;
+        const dt = 1 / intervalRate;
         if (i < ammo - 1) {
-          const intervalRate = isSerumPhase ? serumRate : baseRate;
-          const dt = 1 / intervalRate;
           currentTime += TPS * dt;
-          if (isSerumPhase) {
-            serumFireTimeSeconds += dt;
-          } else {
-            normalFireTimeSeconds += dt;
-          }
-          totalFireTimeSeconds += dt;
         }
+        if (isSerumPhase) {
+          serumFireTimeSeconds += dt;
+        } else {
+          normalFireTimeSeconds += dt;
+        }
+        totalFireTimeSeconds += dt;
       }
       if (mag < magazines - 1) {
         totalReloadTimeSeconds += superSerumActive
