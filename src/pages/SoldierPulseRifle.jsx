@@ -1,14 +1,11 @@
 import {
   ArrowLeft,
-  BarChart3,
   ChevronDown,
-  Clock,
   Crosshair,
   Info,
   Rocket,
   RotateCcw,
   Settings,
-  Target,
   Zap,
   ZoomIn,
   ZoomOut,
@@ -28,6 +25,8 @@ const CRATERED_ICON =
   "https://static.wikia.nocookie.net/overwatch_gamepedia/images/d/d1/Cratered.png";
 const DOUBLE_HELIX_ICON =
   "https://static.wikia.nocookie.net/overwatch_gamepedia/images/1/1d/Double_Helix.png";
+const HELIX_ROCKET_ICON =
+  "https://static.wikia.nocookie.net/overwatch_gamepedia/images/f/f3/Icon-ability.helixrockets.png";
 
 const BASE_DAMAGE = 19;
 const BASE_RATE = 9;
@@ -37,14 +36,13 @@ const ROCKET_INTERVAL = 6;
 const ROCKET_CAST = 0.5;
 const FIRE_RATE_MAX = 20;
 const HALF_SECOND = 0.5;
-const SLIDER_INSET_PX = 12;
 const CHAINGUN_STACK_PER_SHOT = 0.004;
 const CHAINGUN_MAX_STACKS = 100;
-const SUPER_SERUM_BASE_RATE = 1.25;
-const SUPER_SERUM_ACTIVE_RATE = 1.5;
+const SUPER_SERUM_ACTIVE_RATE_BONUS = 0.5;
 const SUPER_SERUM_DAMAGE_MULTIPLIER = 0.85;
 const TPS = 60;
 const SERUM_RELOAD_TIME = 0;
+const SERUM_ACTIVE_DURATION = 5;
 
 const AMMO_OPTIONS = [
   { label: "+20%", value: 0.2 },
@@ -125,18 +123,12 @@ export default function SoldierPulseRifle() {
     superSerumActive,
     abilityPct,
   }) => {
-    // Determine phases
-    // If Serum Active:
-    //   Phase 1: Mag 1, Passive Rate (1.25x), Normal Dmg
-    //   Event: Serum Reload (Instant)
-    //   Phase 2: Mag 2, Active Rate (1.25 * 1.5x), Dmg Penalty (0.85x)
-    // If Serum Inactive:
-    //   Phase 1: Mag 1, Normal Rate, Normal Dmg
-
     const timeline = [];
     let currentTime = 0;
     let cumulativeDamage = 0;
     let currentChaingunStacks = 0;
+    const fireDuration = (bullets, rate) =>
+      bullets <= 1 ? 0 : (bullets - 1) / rate;
 
     // Initial Reload (Start of cycle visualization)
     const reloadFrames = reloadTime * TPS;
@@ -180,37 +172,46 @@ export default function SoldierPulseRifle() {
     // Firing Sequence
     const magazines = superSerumActive ? 2 : 1;
     let totalBulletDamage = 0;
+    let normalBulletDamage = 0;
+    let serumBulletDamage = 0;
     let totalFireTimeSeconds = 0;
+    let normalFireTimeSeconds = 0;
+    let serumFireTimeSeconds = 0;
     let totalReloadTimeSeconds = 0;
+    let totalBulletsFired = 0;
 
     // For Burst Calculation (High Water Mark)
     let bestBurstWindowDmg = 0;
 
     for (let mag = 0; mag < magazines; mag++) {
       // Phase Stats
-      let phaseRate = baseRate;
-      let phaseDamageMult = 1.0;
+      let serumRate = baseRate;
+      let serumStartTimeSeconds = null;
+      let serumEndTimeSeconds = null;
 
-      if (superSerumActive) {
-        if (mag === 0) {
-          // Phase 1: Passive Rate only (+25%)
-          phaseRate = baseRate * SUPER_SERUM_BASE_RATE;
-        } else {
-          // Phase 2: Passive + Active Rate, Damage Penalty
-          phaseRate =
-            baseRate * SUPER_SERUM_BASE_RATE * SUPER_SERUM_ACTIVE_RATE;
-          phaseDamageMult = SUPER_SERUM_DAMAGE_MULTIPLIER;
-        }
+      if (superSerumActive && mag === 1) {
+        // Phase 2: Passive + Active Rate, Damage Penalty
+        serumRate = baseRate + BASE_RATE * SUPER_SERUM_ACTIVE_RATE_BONUS;
+        serumStartTimeSeconds = currentTime / TPS;
+        serumEndTimeSeconds = serumStartTimeSeconds + SERUM_ACTIVE_DURATION;
       }
-
-      const intervalFrames = TPS / phaseRate;
 
       // Special Event: Serum Refill between mags
       if (mag > 0) {
         currentTime += SERUM_RELOAD_TIME * TPS;
       }
 
+      let serumBulletsThisMag = 0;
+
       for (let i = 0; i < ammo; i++) {
+        const isSerumPhase =
+          serumEndTimeSeconds !== null
+            ? currentTime / TPS <= serumEndTimeSeconds + 1e-9
+            : false;
+        const bulletDamageMult = isSerumPhase
+          ? SUPER_SERUM_DAMAGE_MULTIPLIER
+          : 1;
+
         // Chaingun Stacking
         let effectiveStack = 0;
         if (chaingunOn) {
@@ -219,40 +220,51 @@ export default function SoldierPulseRifle() {
         }
 
         const chaingunMult = 1 + effectiveStack * CHAINGUN_STACK_PER_SHOT;
-        const bulletDmg = baseDamage * phaseDamageMult * chaingunMult;
+        const bulletDmg = baseDamage * bulletDamageMult * chaingunMult;
 
         cumulativeDamage += bulletDmg;
         totalBulletDamage += bulletDmg;
+        if (isSerumPhase) {
+          serumBulletDamage += bulletDmg;
+          serumBulletsThisMag += 1;
+        } else {
+          normalBulletDamage += bulletDmg;
+        }
+        totalBulletsFired += 1;
 
         const serumTrigger = superSerumActive && mag === 0 && i === ammo - 1;
-        const serumActiveBullet = superSerumActive && mag === 1;
+        const serumActiveBullet = isSerumPhase;
+        const bulletIndex = totalBulletsFired;
+        const isMaxChaingun =
+          chaingunOn && effectiveStack >= CHAINGUN_MAX_STACKS;
+
         timeline.push({
           type: "fire",
           start: currentTime,
           duration: 0,
-          bulletIndex: mag * ammo + i + 1,
+          bulletIndex,
           damage: bulletDmg,
           cumulative: cumulativeDamage,
-          showLabel:
-            (mag * ammo + i + 1) % 10 === 0 ||
+          forceLabel:
+            bulletIndex === 1 ||
             (mag === magazines - 1 && i === ammo - 1) ||
             serumTrigger,
           serumTrigger,
           serumActiveBullet,
+          isMaxChaingun,
         });
-
-        // Track Burst (0.5s window approx)
-        // Simple heuristic: Rate * 0.5s * current Avg Dmg
-        const bulletsInHalfSec = phaseRate * 0.5;
-        // Accurate burst: sum of next N bullets.
-        // For simplicity/perf in this loop, we calculate "Instant Burst DPS" potential
-        // But the requirements ask for specific 1s Burst (Rocket + 0.5s stream).
-        // We will calculate that derived from the 'Best Phase' stats.
-
-        if (i < ammo - 1) currentTime += intervalFrames;
+        if (i < ammo - 1) {
+          const intervalRate = isSerumPhase ? serumRate : baseRate;
+          const dt = 1 / intervalRate;
+          currentTime += TPS * dt;
+          if (isSerumPhase) {
+            serumFireTimeSeconds += dt;
+          } else {
+            normalFireTimeSeconds += dt;
+          }
+          totalFireTimeSeconds += dt;
+        }
       }
-
-      totalFireTimeSeconds += ammo / phaseRate;
       if (mag < magazines - 1) {
         totalReloadTimeSeconds += superSerumActive
           ? SERUM_RELOAD_TIME
@@ -270,7 +282,7 @@ export default function SoldierPulseRifle() {
     let burstDmgMult = 1.0;
 
     if (superSerumActive) {
-      burstRate = baseRate * SUPER_SERUM_BASE_RATE * SUPER_SERUM_ACTIVE_RATE;
+      burstRate = baseRate + BASE_RATE * SUPER_SERUM_ACTIVE_RATE_BONUS;
       burstDmgMult = SUPER_SERUM_DAMAGE_MULTIPLIER;
     }
 
@@ -293,7 +305,7 @@ export default function SoldierPulseRifle() {
 
     // Effective Rate for display (Max active rate)
     const effectiveRate = superSerumActive
-      ? baseRate * SUPER_SERUM_BASE_RATE * SUPER_SERUM_ACTIVE_RATE
+      ? baseRate + BASE_RATE * SUPER_SERUM_ACTIVE_RATE_BONUS
       : baseRate;
     const effectiveDamagePerShot =
       baseDamage * (superSerumActive ? SUPER_SERUM_DAMAGE_MULTIPLIER : 1);
@@ -304,17 +316,23 @@ export default function SoldierPulseRifle() {
       sustainedDps,
       totalBurst,
       finalRocketDmg,
+      totalDamage: totalBulletDamage + finalRocketDmg,
+      normalFireTimeSeconds,
+      serumFireTimeSeconds,
+      normalBulletDamage,
+      serumBulletDamage,
+      totalReloadTimeSeconds,
       autoAimBullets,
       bulletBurstDmg: burstBulletDmg,
+      totalFireTimeSeconds,
 
       // Display stats
       displayRate: effectiveRate,
       displayDamage: effectiveDamagePerShot,
-      totalAmmo: ammo * magazines, // Total rounds fired in sequence
+      totalAmmo: totalBulletsFired, // Total rounds fired in sequence
       magSize: ammo,
     };
   };
-
   // Base Stats (Standard Soldier, No Serum)
   const baseStats = useMemo(
     () =>
@@ -376,17 +394,34 @@ export default function SoldierPulseRifle() {
     damage: currentStats.displayDamage, // Display effective damage (penalized if serum active)
     rate: currentStats.displayRate, // Display effective rate (boosted if serum active)
     finalRocketDmg: currentStats.finalRocketDmg,
+    helixBaseSingle: explosionDmg ? 144 : 120,
+    helixBaseTotal:
+      miniRocket && explosionDmg
+        ? 187.2
+        : miniRocket
+          ? 171.6
+          : explosionDmg
+            ? 144
+            : 120,
     bulletsHitInHalfSec: currentStats.displayRate * 0.5,
     autoAimBullets: currentStats.autoAimBullets,
     nextBulletRate: currentStats.autoAimBullets / 0.5, // Approx
     rateToNextBullet: 0, // Simplified out for now
     maxRate:
       BASE_RATE *
-      (1 + FIRE_RATE_MAX * 0.05) *
-      (superSerumActive ? SUPER_SERUM_BASE_RATE * SUPER_SERUM_ACTIVE_RATE : 1),
+      (1 +
+        FIRE_RATE_MAX * 0.05 +
+        (superSerumActive ? SUPER_SERUM_ACTIVE_RATE_BONUS : 0)),
     bulletBurstDmg: currentStats.bulletBurstDmg,
     ammo: currentStats.magSize, // Show Mag Size (not total fired) in summary
   };
+
+  const helixPowerMult = 1 + abilityPct * 0.05;
+  const helixFinalSingle = computed.helixBaseSingle * helixPowerMult;
+  const helixFinalTotal = computed.helixBaseTotal * helixPowerMult;
+  const helixFinalSecondary = miniRocket
+    ? Math.max(0, helixFinalTotal - helixFinalSingle)
+    : 0;
 
   const handleWheel = (e) => {
     if (e.deltaY !== 0) {
@@ -474,14 +509,30 @@ export default function SoldierPulseRifle() {
                         +{damagePct * 5}%
                       </span>
                     </div>
-                    <span className="flex items-baseline gap-2">
-                      <span className="text-white font-mono font-bold text-lg">
-                        {computed.damage.toFixed(2)}
-                      </span>
-                      <span className="text-[10px] uppercase tracking-wide text-slate-400">
-                        dmg
-                      </span>
-                    </span>
+                    <div className="flex flex-col items-end">
+                      <div className="flex items-baseline gap-2">
+                        <span className="text-white font-mono font-bold text-lg">
+                          {(BASE_DAMAGE * (1 + damagePct * 0.05)).toFixed(2)}
+                        </span>
+                        <span className="text-[10px] uppercase tracking-wide text-slate-400">
+                          damage / shot
+                        </span>
+                      </div>
+                      <div
+                        className={`flex items-baseline gap-1 text-violet-400 transition-opacity duration-200 ${superSerumActive ? "opacity-100" : "opacity-0"}`}
+                      >
+                        <span className="text-[9px] uppercase font-bold">
+                          Serum Active (-15%):
+                        </span>
+                        <span className="text-sm font-mono font-bold">
+                          {(
+                            BASE_DAMAGE *
+                            (1 + damagePct * 0.05) *
+                            SUPER_SERUM_DAMAGE_MULTIPLIER
+                          ).toFixed(2)}
+                        </span>
+                      </div>
+                    </div>
                   </div>
                   <input
                     type="range"
@@ -495,7 +546,7 @@ export default function SoldierPulseRifle() {
 
                 {/* Attack Speed Slider */}
                 <div>
-                  <div className="flex justify-between mb-3 items-end">
+                  <div className="flex justify-between mb-10 items-end">
                     <div>
                       <label className="text-xs font-medium block text-slate-400 uppercase">
                         Attack Speed
@@ -504,17 +555,53 @@ export default function SoldierPulseRifle() {
                         +{fireRatePct * 5}%
                       </span>
                     </div>
-                    <span className="flex items-baseline gap-2">
-                      <span className="text-white font-mono font-bold text-lg">
-                        {computed.rate.toFixed(2)}
-                      </span>
-                      <span className="text-[10px] uppercase tracking-wide text-slate-400">
-                        s/s
-                      </span>
-                    </span>
+                    <div className="flex flex-col items-end">
+                      <div className="flex items-baseline gap-2">
+                        <span className="text-white font-mono font-bold text-lg">
+                          {(BASE_RATE * (1 + fireRatePct * 0.05)).toFixed(2)}
+                        </span>
+                        <span className="text-[10px] uppercase tracking-wide text-slate-400">
+                          shots / second
+                        </span>
+                      </div>
+                      <div
+                        className={`flex items-baseline gap-1 text-violet-400 transition-opacity duration-200 ${superSerumActive ? "opacity-100" : "opacity-0"}`}
+                      >
+                        <span className="text-[9px] uppercase font-bold">
+                          Serum Active (+50%):
+                        </span>
+                        <span className="text-sm font-mono font-bold">
+                          {(
+                            BASE_RATE *
+                            (1 +
+                              fireRatePct * 0.05 +
+                              SUPER_SERUM_ACTIVE_RATE_BONUS)
+                          ).toFixed(2)}
+                        </span>
+                      </div>
+                    </div>
                   </div>
 
-                  <div className="relative mb-8 group">
+                  <div className="relative mb-6 group">
+                    {/* Breakpoints Visualization */}
+                    <div className="absolute bottom-full left-[12px] right-[12px] h-8 pointer-events-none">
+                      {fireRateBreakpoints.map((point) => (
+                        <div
+                          key={point.bullets}
+                          className="absolute bottom-0 -translate-x-1/2 flex flex-col items-center"
+                          style={{
+                            left: `${(point.pct / FIRE_RATE_MAX) * 100}%`,
+                          }}
+                        >
+                          <span className="text-[9px] font-mono text-blue-400 font-semibold mb-0.5 whitespace-nowrap">
+                            {point.bullets} ({point.percentLabel}%)
+                          </span>
+                          <div className="text-slate-500 text-[8px] leading-none transform scale-x-75">
+                            ▼
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                     <input
                       type="range"
                       min="0"
@@ -523,59 +610,6 @@ export default function SoldierPulseRifle() {
                       onChange={(e) => setFireRatePct(Number(e.target.value))}
                       className="w-full h-2 bg-slate-700 rounded-lg appearance-none accent-blue-500 cursor-pointer relative z-10"
                     />
-                    {/* Breakpoints Visualization */}
-                    <div className="absolute top-3 left-[12px] right-[12px] h-4 pointer-events-none">
-                      {fireRateBreakpoints.map((point) => (
-                        <div
-                          key={point.bullets}
-                          className="absolute top-0 -translate-x-1/2 flex flex-col items-center"
-                          style={{
-                            left: `${(point.pct / FIRE_RATE_MAX) * 100}%`,
-                          }}
-                        >
-                          <div className="w-px h-2 bg-slate-600 mb-1"></div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Super Visor Toggle */}
-                <div className="bg-slate-900/30 rounded border border-slate-700/50 overflow-hidden">
-                  <button
-                    type="button"
-                    onClick={() => setSuperVisorOpen((prev) => !prev)}
-                    className="w-full p-2 flex items-start gap-3 text-left"
-                  >
-                    <img
-                      src={SUPER_VISOR_ICON}
-                      alt="Super Visor"
-                      className="h-5 w-5 rounded-full border border-slate-700 bg-slate-900/70 p-[1px] shrink-0 mt-0.5"
-                    />
-                    <div className="flex-1 min-w-0">
-                      <div className="flex justify-between items-baseline mb-0.5">
-                        <span className="text-[10px] font-bold text-slate-300 uppercase tracking-wide">
-                          Super Visor
-                        </span>
-                        <span className="text-[10px] text-blue-300 font-mono">
-                          {computed.autoAimBullets} bullets
-                        </span>
-                      </div>
-                    </div>
-                    <ChevronDown
-                      className={`h-3 w-3 text-slate-500 transition-transform ${superVisorOpen ? "rotate-180" : ""}`}
-                    />
-                  </button>
-                  <div
-                    className={`px-2 pb-2 text-[10px] text-slate-400 leading-relaxed transition-[max-height,opacity] duration-500 overflow-hidden ${
-                      superVisorOpen
-                        ? "max-h-24 opacity-100"
-                        : "max-h-0 opacity-0"
-                    }`}
-                  >
-                    At {fireRatePct * 5}% attack speed, you fire{" "}
-                    {computed.autoAimBullets} bullets during the 0.5s auto-aim
-                    window.
                   </div>
                 </div>
 
@@ -588,7 +622,7 @@ export default function SoldierPulseRifle() {
                   >
                     <div className="flex flex-col">
                       <span className="text-sm font-bold text-blue-300">
-                        Ammo & Special
+                        Ammunition Modifiers
                       </span>
                     </div>
                     <ChevronDown
@@ -637,47 +671,69 @@ export default function SoldierPulseRifle() {
                     </div>
 
                     {/* Serum */}
-                    <div className="bg-slate-900/40 rounded-xl border border-slate-700 p-3 flex items-center justify-between">
-                      <label className="text-xs font-semibold text-slate-300 flex items-center gap-2">
-                        <img
-                          src={SUPER_SERUM_ICON}
-                          alt="Super Serum"
-                          className="h-4 w-4 rounded-full border border-slate-700 bg-slate-900/70 p-[1px]"
-                        />
-                        Super Serum
-                      </label>
-                      <label className="relative inline-flex items-center cursor-pointer">
-                        <input
-                          type="checkbox"
-                          className="sr-only peer"
-                          checked={superSerumActive}
-                          onChange={(e) =>
-                            setSuperSerumActive(e.target.checked)
-                          }
-                        />
-                        <div className="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-500"></div>
-                      </label>
+                    <div className="bg-slate-900/40 rounded-xl border border-slate-700 p-3">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex flex-col">
+                          <label className="text-xs font-semibold text-slate-300 flex items-center gap-2">
+                            <img
+                              src={SUPER_SERUM_ICON}
+                              alt="Super Serum"
+                              className="h-4 w-4 rounded-full border border-slate-700 bg-slate-900/70 p-[1px]"
+                            />
+                            Super Serum
+                          </label>
+                          <span className="text-[9px] text-slate-500 leading-tight mt-1">
+                            On Use: Increase total Attack Speed by 50% but deal
+                            15% reduced Weapon Damage for 5s. CD: 30s
+                          </span>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                          <input
+                            type="checkbox"
+                            className="sr-only peer"
+                            checked={superSerumActive}
+                            onChange={(e) =>
+                              setSuperSerumActive(e.target.checked)
+                            }
+                          />
+                          <div className="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-500"></div>
+                        </label>
+                      </div>
+                      <div className="text-[9px] text-slate-400 font-mono border-t border-slate-700/50 pt-2">
+                        Note: Optimal activation shown at last bullet in
+                        visualizer.
+                      </div>
                     </div>
 
                     {/* Chaingun */}
-                    <div className="bg-slate-900/40 rounded-xl border border-slate-700 p-3 flex items-center justify-between">
-                      <label className="text-xs font-semibold text-slate-300 flex items-center gap-2">
-                        <img
-                          src={CHAINGUN_ICON}
-                          alt="Chaingun"
-                          className="h-5 w-5 rounded-md border border-slate-700 bg-slate-900/70 p-[2px]"
-                        />
-                        Chaingun
-                      </label>
-                      <label className="relative inline-flex items-center cursor-pointer">
-                        <input
-                          type="checkbox"
-                          className="sr-only peer"
-                          checked={chaingunEnabled}
-                          onChange={(e) => setChaingunEnabled(e.target.checked)}
-                        />
-                        <div className="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-500"></div>
-                      </label>
+                    <div className="bg-slate-900/40 rounded-xl border border-slate-700 p-3">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex flex-col">
+                          <label className="text-xs font-semibold text-slate-300 flex items-center gap-2">
+                            <img
+                              src={CHAINGUN_ICON}
+                              alt="Chaingun"
+                              className="h-5 w-5 rounded-md border border-slate-700 bg-slate-900/70 p-[2px]"
+                            />
+                            Chaingun
+                          </label>
+                          <span className="text-[9px] text-slate-500 leading-tight mt-1">
+                            Each shot grants 0.4% Weapon Power, stacking up to
+                            100x. Resets on reload.
+                          </span>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                          <input
+                            type="checkbox"
+                            className="sr-only peer"
+                            checked={chaingunEnabled}
+                            onChange={(e) =>
+                              setChaingunEnabled(e.target.checked)
+                            }
+                          />
+                          <div className="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-500"></div>
+                        </label>
+                      </div>
                     </div>
 
                     {/* Man on Run */}
@@ -708,83 +764,9 @@ export default function SoldierPulseRifle() {
                         onChange={(e) => setManOnRunPct(Number(e.target.value))}
                         className="w-full h-2 bg-slate-700 rounded-lg appearance-none accent-blue-500"
                       />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Rocket Accordion */}
-                <div className="bg-slate-900/50 rounded-xl border border-slate-700 overflow-hidden">
-                  <button
-                    type="button"
-                    onClick={() => setRocketAccordionOpen((prev) => !prev)}
-                    className="w-full flex items-center justify-between p-3 text-left hover:bg-slate-800/50 transition-colors"
-                  >
-                    <div className="flex flex-col">
-                      <span className="text-sm font-bold text-orange-400">
-                        Helix Rocket
-                      </span>
-                    </div>
-                    <ChevronDown
-                      className={`h-4 w-4 text-slate-400 transition-transform ${rocketAccordionOpen ? "rotate-180" : ""}`}
-                    />
-                  </button>
-
-                  <div
-                    className={`px-3 pb-3 space-y-3 transition-all overflow-hidden ${
-                      rocketAccordionOpen
-                        ? "max-h-[800px] opacity-100"
-                        : "max-h-0 opacity-0 pointer-events-none"
-                    }`}
-                  >
-                    <div className="bg-slate-900/40 rounded-xl border border-slate-700 p-3 space-y-3">
-                      <div className="flex items-center justify-between">
-                        <label className="text-xs font-semibold text-slate-300">
-                          Enable
-                        </label>
-                        <label
-                          className="relative inline-flex items-center cursor-pointer"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <input
-                            type="checkbox"
-                            className="sr-only peer"
-                            checked={rocketEnabled}
-                            onChange={(e) => setRocketEnabled(e.target.checked)}
-                          />
-                          <div className="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-orange-500"></div>
-                        </label>
-                      </div>
-
-                      <div>
-                        <div className="flex justify-between mb-1 items-end">
-                          <label className="text-xs font-medium block text-slate-400 uppercase">
-                            Power (+{abilityPct * 5}%)
-                          </label>
-                          <span className="text-white font-mono font-bold text-xs">
-                            {computed.finalRocketDmg.toFixed(1)}
-                          </span>
-                        </div>
-                        <input
-                          type="range"
-                          min="0"
-                          max="20"
-                          value={abilityPct}
-                          onChange={(e) =>
-                            setAbilityPct(Number(e.target.value))
-                          }
-                          className="w-full h-2 bg-slate-700 rounded-lg appearance-none accent-orange-500"
-                        />
-                      </div>
-                    </div>
-                    {/* Rocket Mods */}
-                    <div className="flex gap-2">
-                      <div className="flex-1 bg-slate-900/40 rounded-xl border border-slate-700 p-2 flex flex-col items-center justify-center gap-1 cursor-pointer hover:bg-slate-800/60" onClick={() => setMiniRocket(!miniRocket)}>
-                         <img src={DOUBLE_HELIX_ICON} className="h-5 w-5" />
-                         <span className={`text-[9px] font-bold ${miniRocket ? "text-orange-400" : "text-slate-500"}`}>Double</span>
-                      </div>
-                      <div className="flex-1 bg-slate-900/40 rounded-xl border border-slate-700 p-2 flex flex-col items-center justify-center gap-1 cursor-pointer hover:bg-slate-800/60" onClick={() => setExplosionDmg(!explosionDmg)}>
-                         <img src={CRATERED_ICON} className="h-5 w-5" />
-                         <span className={`text-[9px] font-bold ${explosionDmg ? "text-orange-400" : "text-slate-500"}`}>Radius</span>
+                      <div className="mt-2 text-[9px] text-slate-500 leading-tight">
+                        During Sprint, restore ammo and increase Max Ammo by 10%
+                        per 1s (max 10 stacks).
                       </div>
                     </div>
                   </div>
@@ -797,12 +779,12 @@ export default function SoldierPulseRifle() {
               {/* Stat Cards */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {/* Burst Card */}
-                <div className="bg-slate-800 p-6 rounded-xl border border-slate-700 flex flex-col justify-between shadow-lg relative overflow-hidden group">
-                  <div className="absolute right-0 top-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity">
-                     <Zap className="w-24 h-24 text-orange-500" />
+                <div className="bg-slate-800 p-6 rounded-xl border border-slate-700 flex flex-col justify-between shadow-lg relative overflow-hidden">
+                  <div className="absolute right-0 top-0 p-3 opacity-10">
+                    <Zap className="w-24 h-24 text-orange-500" />
                   </div>
-                  <div>
-                    <div className="flex items-center gap-2 mb-2">
+                  <div className="w-full">
+                    <div className="flex items-center gap-2 mb-2 relative z-10">
                       <div className="p-2 bg-orange-500/20 rounded-lg text-orange-400">
                         <Zap className="w-5 h-5" />
                       </div>
@@ -810,25 +792,89 @@ export default function SoldierPulseRifle() {
                         1s Burst Damage
                       </span>
                     </div>
-                    <div className="text-5xl font-black text-white tracking-tight">
+                    <div className="text-5xl font-black text-white tracking-tight relative z-10">
                       {Math.round(computed.totalBurst)}
                     </div>
-                    <div className="text-xs text-orange-400/80 font-mono mt-1">
+                    <div className="text-xs text-orange-400/80 font-mono mt-1 relative z-10">
                       (Helix + {computed.autoAimBullets} Bullets)
                     </div>
                   </div>
-                  <div className="mt-4 pt-4 border-t border-slate-700/50 flex gap-4 text-xs text-slate-500">
-                     <div>
-                       <span className="block text-slate-400 font-bold">Ref:</span>
-                       Rocket + 0.5s Stream
-                     </div>
+
+                  {/* Expanded Details */}
+                  <div className="mt-4 pt-4 border-t border-slate-700/50 grid grid-cols-2 gap-4 relative z-10">
+                    {/* Rocket Column */}
+                    <div className="bg-slate-900/30 rounded-lg p-3 border border-slate-700/30 flex flex-col gap-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <img
+                          src={HELIX_ROCKET_ICON}
+                          alt="Helix Rocket"
+                          className="w-3 h-3 opacity-80"
+                        />
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">
+                          Helix Rocket
+                        </span>
+                      </div>
+                      <div className="text-xl font-black text-white">
+                        {Math.round(computed.finalRocketDmg)}
+                      </div>
+                      <div className="text-[9px] text-slate-500 leading-tight">
+                        {miniRocket ? (
+                          <>
+                            Split:{" "}
+                            <span className="text-slate-300 font-mono">
+                              {helixFinalSingle.toFixed(1)}
+                            </span>{" "}
+                            +{" "}
+                            <span className="text-slate-300 font-mono">
+                              {helixFinalSecondary.toFixed(1)}
+                            </span>{" "}
+                            (Double Helix)
+                          </>
+                        ) : (
+                          <>
+                            Single hit:{" "}
+                            <span className="text-slate-300 font-mono">
+                              {helixFinalSingle.toFixed(1)}
+                            </span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Visor Column */}
+                    <div className="bg-slate-900/30 rounded-lg p-3 border border-slate-700/30 flex flex-col gap-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <img
+                          src={SUPER_VISOR_ICON}
+                          alt="Visor"
+                          className="w-3 h-3 opacity-80"
+                        />
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">
+                          Super Visor Auto-Aim
+                        </span>
+                      </div>
+                      <div className="text-xl font-black text-white">
+                        {Math.round(computed.bulletBurstDmg)}
+                      </div>
+                      <div className="text-[9px] text-slate-500 leading-tight min-h-[36px]">
+                        At{" "}
+                        <span className="text-blue-300">
+                          {fireRatePct * 5}%
+                        </span>{" "}
+                        attack speed, you fire{" "}
+                        <span className="text-white font-bold">
+                          {computed.autoAimBullets}
+                        </span>{" "}
+                        bullets during the 0.5s auto-aim window.
+                      </div>
+                    </div>
                   </div>
                 </div>
 
                 {/* Sustained Card */}
                 <div className="bg-slate-800 p-6 rounded-xl border border-slate-700 flex flex-col justify-between shadow-lg relative overflow-hidden group">
                   <div className="absolute right-0 top-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity">
-                     <Crosshair className="w-24 h-24 text-green-500" />
+                    <Crosshair className="w-24 h-24 text-green-500" />
                   </div>
                   <div>
                     <div className="flex items-center gap-2 mb-2">
@@ -846,37 +892,205 @@ export default function SoldierPulseRifle() {
                       (Over full cycle)
                     </div>
                   </div>
-                   <div className="mt-4 pt-4 border-t border-slate-700/50 flex gap-4 text-xs text-slate-500">
-                     <div>
-                       <span className="block text-slate-400 font-bold">Ref:</span>
-                       Continuous Fire + Reload
-                     </div>
+                  <div className="mt-4 pt-4 border-t border-slate-700/50 flex flex-wrap gap-6 text-xs text-slate-500">
+                    <div>
+                      <span className="block text-slate-400 font-bold">
+                        Reload
+                      </span>
+                      {currentStats.totalReloadTimeSeconds.toFixed(1)}s
+                    </div>
+                    <div>
+                      <span className="block text-slate-400 font-bold">
+                        Normal Fire
+                      </span>
+                      {currentStats.normalFireTimeSeconds.toFixed(2)}s
+                    </div>
+                    <div>
+                      <span className="block text-slate-400 font-bold">
+                        Serum Fire
+                      </span>
+                      {currentStats.serumFireTimeSeconds > 0
+                        ? `${currentStats.serumFireTimeSeconds.toFixed(2)}s`
+                        : "—"}
+                    </div>
+                    <div>
+                      <span className="block text-slate-400 font-bold">
+                        Normal Fire DPS
+                      </span>
+                      {currentStats.normalFireTimeSeconds > 0
+                        ? Math.round(
+                            currentStats.normalBulletDamage /
+                              currentStats.normalFireTimeSeconds,
+                          )
+                        : "—"}
+                    </div>
+                    <div>
+                      <span className="block text-slate-400 font-bold">
+                        Serum Fire DPS
+                      </span>
+                      {currentStats.serumFireTimeSeconds > 0
+                        ? Math.round(
+                            currentStats.serumBulletDamage /
+                              currentStats.serumFireTimeSeconds,
+                          )
+                        : "—"}
+                    </div>
                   </div>
                 </div>
               </div>
 
               {/* Mechanics Breakdown (New) */}
-               <div className="bg-slate-800 rounded-xl p-6 border border-slate-700 shadow-sm">
+              <div className="bg-slate-800 rounded-xl p-6 border border-slate-700 shadow-sm">
                 <div className="flex items-center gap-2 mb-4 pb-2 border-b border-slate-700">
-                   <Info className="w-4 h-4 text-slate-400" />
-                   <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wider">Mechanics Breakdown</h3>
+                  <Info className="w-4 h-4 text-slate-400" />
+                  <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wider">
+                    Mechanics Breakdown
+                  </h3>
                 </div>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
                   <div className="bg-slate-900/50 p-3 rounded-lg border border-slate-700/50">
-                    <div className="text-xs text-slate-400 uppercase tracking-wider mb-1">Mag Size</div>
-                    <div className="text-lg font-bold text-white">{computed.ammo}</div>
+                    <div className="text-xs text-slate-400 uppercase tracking-wider mb-1">
+                      Mag Size
+                    </div>
+                    <div className="text-lg font-bold text-white">
+                      {computed.ammo}
+                    </div>
                   </div>
                   <div className="bg-slate-900/50 p-3 rounded-lg border border-slate-700/50">
-                     <div className="text-xs text-slate-400 uppercase tracking-wider mb-1">Rocket CD</div>
-                     <div className="text-lg font-bold text-white">{ROCKET_INTERVAL}s</div>
+                    <div className="text-xs text-slate-400 uppercase tracking-wider mb-1">
+                      Total Damage
+                    </div>
+                    <div className="text-lg font-bold text-white">
+                      {Math.round(currentStats.totalDamage)}
+                    </div>
                   </div>
                   <div className="bg-slate-900/50 p-3 rounded-lg border border-slate-700/50">
-                     <div className="text-xs text-slate-400 uppercase tracking-wider mb-1">Reload</div>
-                     <div className="text-lg font-bold text-white">{RELOAD}s</div>
+                    <div className="text-xs text-slate-400 uppercase tracking-wider mb-1">
+                      Unload Time
+                    </div>
+                    <div className="text-lg font-bold text-white">
+                      {currentStats.totalFireTimeSeconds.toFixed(2)}s
+                    </div>
                   </div>
-                   <div className="bg-slate-900/50 p-3 rounded-lg border border-slate-700/50">
-                     <div className="text-xs text-slate-400 uppercase tracking-wider mb-1">Total Time</div>
-                     <div className="text-lg font-bold text-white">{currentStats.totalTimeSeconds.toFixed(1)}s</div>
+                  <div className="bg-slate-900/50 p-3 rounded-lg border border-slate-700/50">
+                    <div className="text-xs text-slate-400 uppercase tracking-wider mb-1">
+                      Cycle Time
+                    </div>
+                    <div className="text-lg font-bold text-white">
+                      {currentStats.totalTimeSeconds.toFixed(1)}s
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Helix Rocket Configuration (Moved from Left) */}
+              <div className="bg-slate-800 rounded-xl p-6 border border-slate-700 shadow-sm space-y-4">
+                <div className="flex items-center justify-between gap-2 pb-2 border-b border-slate-700">
+                  <div className="flex items-center gap-2">
+                    <div className="p-1.5 bg-orange-500/20 rounded text-orange-400">
+                      <Rocket className="w-4 h-4" />
+                    </div>
+                    <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wider">
+                      Helix Rocket Config
+                    </h3>
+                  </div>
+                  <span className="text-[10px] font-mono text-slate-500">
+                    6s Interval · 0.5s Cast
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* Column 1: Enable & Power */}
+                  <div className="space-y-4">
+                    <div className="bg-slate-900/50 rounded-xl border border-slate-700/50 p-3">
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="text-xs font-semibold text-slate-300">
+                          Enable Ability
+                        </label>
+                        <label
+                          className="relative inline-flex items-center cursor-pointer"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <input
+                            type="checkbox"
+                            className="sr-only peer"
+                            checked={rocketEnabled}
+                            onChange={(e) => setRocketEnabled(e.target.checked)}
+                          />
+                          <div className="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-orange-500"></div>
+                        </label>
+                      </div>
+                      <p className="text-[9px] text-slate-500">
+                        Toggle Helix Rocket damage in cycle.
+                      </p>
+                    </div>
+
+                    <div className="bg-slate-900/50 rounded-xl border border-slate-700/50 p-3">
+                      <div className="flex justify-between mb-1 items-end">
+                        <label className="text-xs font-medium block text-slate-400 uppercase">
+                          Ability Power (+{abilityPct * 5}%)
+                        </label>
+                        <span className="text-white font-mono font-bold text-xs">
+                          {computed.finalRocketDmg.toFixed(1)}
+                        </span>
+                      </div>
+                      <input
+                        type="range"
+                        min="0"
+                        max="20"
+                        value={abilityPct}
+                        onChange={(e) => setAbilityPct(Number(e.target.value))}
+                        className="w-full h-2 bg-slate-700 rounded-lg appearance-none accent-orange-500"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Column 2: Mods */}
+                  <div className="flex gap-2 h-full">
+                    <div
+                      className="flex-1 bg-slate-900/50 rounded-xl border border-slate-700/50 p-3 flex flex-col items-center gap-2 cursor-pointer hover:bg-slate-800/80 transition-colors"
+                      onClick={() => setMiniRocket(!miniRocket)}
+                    >
+                      <div className="flex flex-col items-center gap-1">
+                        <img
+                          src={DOUBLE_HELIX_ICON}
+                          className="h-8 w-8 opacity-80"
+                        />
+                        <span
+                          className={`text-[10px] font-bold uppercase tracking-wide text-center ${miniRocket ? "text-orange-400" : "text-slate-500"}`}
+                        >
+                          Double Helix
+                        </span>
+                      </div>
+                      <p className="text-[9px] text-slate-500 text-center leading-tight flex-1">
+                        Fires a second homing rocket (70% reduced damage).
+                      </p>
+                      <div
+                        className={`w-2 h-2 rounded-full ${miniRocket ? "bg-orange-500" : "bg-slate-700"}`}
+                      ></div>
+                    </div>
+                    <div
+                      className="flex-1 bg-slate-900/50 rounded-xl border border-slate-700/50 p-3 flex flex-col items-center gap-2 cursor-pointer hover:bg-slate-800/80 transition-colors"
+                      onClick={() => setExplosionDmg(!explosionDmg)}
+                    >
+                      <div className="flex flex-col items-center gap-1">
+                        <img
+                          src={CRATERED_ICON}
+                          className="h-8 w-8 opacity-80"
+                        />
+                        <span
+                          className={`text-[10px] font-bold uppercase tracking-wide text-center ${explosionDmg ? "text-orange-400" : "text-slate-500"}`}
+                        >
+                          Cratered
+                        </span>
+                      </div>
+                      <p className="text-[9px] text-slate-500 text-center leading-tight flex-1">
+                        +40% Explosion Radius and +15% explosion damage.
+                      </p>
+                      <div
+                        className={`w-2 h-2 rounded-full ${explosionDmg ? "bg-orange-500" : "bg-slate-700"}`}
+                      ></div>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -899,13 +1113,21 @@ export default function SoldierPulseRifle() {
           </h3>
 
           <div className="flex items-center space-x-4">
-            <div className="hidden md:flex space-x-4 text-xs font-normal bg-slate-800 p-2 rounded-lg border border-slate-700">
+            <div
+              className="hidden md:flex space-x-4 text-xs font-normal bg-slate-800 p-2 rounded-lg border border-slate-700"
+              onClick={(e) => e.stopPropagation()}
+            >
               <LegendItem color="bg-red-500" label="Reload" />
               <LegendItem color="bg-orange-500" label="Helix" />
               <LegendItem color="bg-emerald-400" label="Fire" />
+              <LegendItem color="bg-blue-400" label="Chaingun" />
+              <LegendItem color="bg-violet-300" label="Serum" />
             </div>
 
-            <div className="flex items-center space-x-2 bg-slate-900/50 px-3 py-1 rounded-full border border-slate-700">
+            <div
+              className="flex items-center space-x-2 bg-slate-900/50 px-3 py-1 rounded-full border border-slate-700"
+              onClick={(e) => e.stopPropagation()}
+            >
               <ZoomOut className="w-3 h-3 text-slate-400" />
               <input
                 type="range"
@@ -921,7 +1143,10 @@ export default function SoldierPulseRifle() {
                 {zoomLevel.toFixed(1)}x
               </span>
             </div>
-            <div className="text-xs text-slate-500 bg-slate-900/50 px-3 py-1 rounded-full border border-slate-700 font-mono hidden md:block">
+            <div
+              className="text-xs text-slate-500 bg-slate-900/50 px-3 py-1 rounded-full border border-slate-700 font-mono hidden md:block w-28 text-center"
+              onClick={(e) => e.stopPropagation()}
+            >
               Scale: {maxDuration.toFixed(2)}s
             </div>
             <ChevronDown
@@ -986,6 +1211,7 @@ export default function SoldierPulseRifle() {
                   stats={baseStats}
                   maxTime={maxDuration}
                   fireClass="bg-slate-300/80"
+                  zoomLevel={zoomLevel}
                 />
               </div>
             </div>
@@ -1007,6 +1233,7 @@ export default function SoldierPulseRifle() {
                   maxTime={maxDuration}
                   fireClass="bg-emerald-400"
                   glowClass={true}
+                  zoomLevel={zoomLevel}
                 />
               </div>
             </div>
@@ -1059,10 +1286,12 @@ export default function SoldierPulseRifle() {
   );
 }
 
-function TimelineTrack({ stats, maxTime, fireClass, glowClass }) {
+function TimelineTrack({ stats, maxTime, fireClass, glowClass, zoomLevel }) {
   const [tooltip, setTooltip] = useState(null);
   const [tooltipSize, setTooltipSize] = useState({ width: 0, height: 0 });
+  const [trackWidth, setTrackWidth] = useState(0);
   const tooltipRef = useRef(null);
+  const trackRef = useRef(null);
 
   useLayoutEffect(() => {
     if (!tooltip || !tooltipRef.current) return;
@@ -1072,25 +1301,98 @@ function TimelineTrack({ stats, maxTime, fireClass, glowClass }) {
     }
   }, [tooltip]);
 
+  useLayoutEffect(() => {
+    if (trackRef.current) {
+      setTrackWidth(trackRef.current.offsetWidth);
+    }
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        setTrackWidth(entry.contentRect.width);
+      }
+    });
+    if (trackRef.current) {
+      observer.observe(trackRef.current);
+    }
+    return () => observer.disconnect();
+  }, []);
+
+  const processedTimeline = useMemo(() => {
+    if (!stats || trackWidth === 0) return stats ? stats.timeline : [];
+
+    const LABEL_WIDTH_PX = 60;
+    const totalBullets = stats.totalAmmo || 1;
+
+    // 1. Calculate Smart Step
+    // How many pixels per bullet on average?
+    const pixelsPerBullet = trackWidth / totalBullets;
+    const minBulletsBetweenLabels = Math.ceil(LABEL_WIDTH_PX / pixelsPerBullet);
+    const niceSteps = [5, 10, 20, 25, 50, 100];
+    const smartStep =
+      niceSteps.find((s) => s >= minBulletsBetweenLabels) || 100;
+
+    // 2. Pre-calculate positions and identify forced labels
+    const eventsWithPos = stats.timeline.map((e, idx) => ({
+      ...e,
+      originalIdx: idx,
+      pixelPos: maxTime > 0 ? (e.start / (maxTime * TPS)) * trackWidth : 0,
+    }));
+
+    const forcedEvents = eventsWithPos.filter((e) => e.forceLabel);
+
+    // 3. Process Labels
+    let lastLabelPixel = -999;
+
+    return eventsWithPos.map((event) => {
+      if (event.type !== "fire") return { ...event, showLabel: false };
+
+      const isForced = event.forceLabel;
+      const isStepCandidate = event.bulletIndex % smartStep === 0;
+      let show = false;
+
+      if (isForced) {
+        show = true;
+      } else if (isStepCandidate) {
+        // Collision check: Don't show step label if it's too close to ANY forced label
+        const isNearForced = forcedEvents.some(
+          (fe) => Math.abs(fe.pixelPos - event.pixelPos) < LABEL_WIDTH_PX,
+        );
+        // Also don't show if too close to previous label
+        const isNearLast = event.pixelPos - lastLabelPixel < LABEL_WIDTH_PX;
+
+        if (!isNearForced && !isNearLast) {
+          show = true;
+        }
+      }
+
+      if (show) {
+        lastLabelPixel = event.pixelPos;
+      }
+
+      return { ...event, showLabel: show };
+    });
+  }, [stats, maxTime, trackWidth]);
+
   if (!stats) return null;
 
   return (
     <>
       <div
+        ref={trackRef}
         className="absolute inset-0 w-full h-full"
         onMouseLeave={() => setTooltip(null)}
       >
-        {stats.timeline.map((event, idx) => {
+        {processedTimeline.map((event, idx) => {
           const leftPos =
             maxTime > 0 ? (event.start / (maxTime * TPS)) * 100 : 0;
           const width =
             maxTime > 0 ? (event.duration / (maxTime * TPS)) * 100 : 0;
 
           if (event.type === "fire") {
-            const isAlternated = (event.bulletIndex / 10) % 2 === 0;
             const isHovered = tooltip?.idx === idx;
             const isSerumTrigger = event.serumTrigger;
             const isSerumActive = event.serumActiveBullet;
+            const isMaxChaingun = event.isMaxChaingun;
+
             return (
               <div
                 key={idx}
@@ -1121,15 +1423,19 @@ function TimelineTrack({ stats, maxTime, fireClass, glowClass }) {
                   className={`h-full transition-all ${
                     isSerumTrigger
                       ? "w-[3px] bg-violet-300 shadow-[0_0_18px_rgba(167,139,250,0.95)]"
-                      : isSerumActive
-                        ? `w-[2px] bg-violet-300/90 shadow-[0_0_6px_rgba(167,139,250,0.55)]`
-                        : `w-[2px] ${fireClass}`
-                  } ${glowClass && !isSerumTrigger && !isSerumActive ? `shadow-[0_0_8px_rgba(52,211,153,0.5)]` : ""} ${isHovered ? "scale-y-110 w-[3px] brightness-125" : ""}`}
+                      : isSerumActive && isMaxChaingun
+                        ? "w-[2px] bg-[linear-gradient(to_bottom,theme(colors.violet.300)_50%,theme(colors.blue.400)_50%)] shadow-[0_0_8px_rgba(167,139,250,0.6)]"
+                        : isSerumActive
+                          ? `w-[2px] bg-violet-300/90 shadow-[0_0_6px_rgba(167,139,250,0.55)]`
+                          : isMaxChaingun
+                            ? "w-[2px] bg-blue-400 shadow-[0_0_8px_rgba(96,165,250,0.8)]"
+                            : `w-[2px] ${fireClass}`
+                  } ${glowClass && !isSerumTrigger && !isSerumActive && !isMaxChaingun ? `shadow-[0_0_8px_rgba(52,211,153,0.5)]` : ""} ${isHovered ? "scale-y-110 w-[3px] brightness-125" : ""}`}
                 />
 
                 {event.showLabel && (
                   <div
-                    className={`absolute ${isAlternated ? "bottom-1" : "top-1"} left-1/2 -translate-x-1/2 z-30 text-[9px] font-mono text-slate-100 font-medium pointer-events-none bg-slate-900/90 border border-slate-700/80 rounded px-1.5 py-0.5 whitespace-nowrap shadow-sm`}
+                    className={`absolute top-1 left-1/2 -translate-x-1/2 z-30 text-[9px] font-mono text-slate-100 font-medium pointer-events-none bg-slate-900/90 border border-slate-700/80 rounded px-1.5 py-0.5 whitespace-nowrap shadow-sm`}
                   >
                     <span className="text-slate-400">#</span>
                     {event.bulletIndex} ·{" "}
@@ -1286,7 +1592,13 @@ function TimelineTrack({ stats, maxTime, fireClass, glowClass }) {
                       <span className="text-[9px] text-slate-500 uppercase">
                         Total
                       </span>
-                      <span className="text-xs font-mono font-bold text-emerald-400">
+                      <span
+                        className={`text-xs font-mono font-bold ${
+                          tooltip.data.serumActiveBullet
+                            ? "text-violet-300"
+                            : "text-emerald-400"
+                        }`}
+                      >
                         {tooltip.data.cumulative.toFixed(1)}
                       </span>
                     </div>
@@ -1309,6 +1621,11 @@ function TimelineTrack({ stats, maxTime, fireClass, glowClass }) {
                           Serum active
                         </div>
                       )}
+                    {tooltip.data.isMaxChaingun && (
+                      <div className="mt-1 text-[9px] font-semibold uppercase text-blue-400">
+                        Chaingun: Max Stacks
+                      </div>
+                    )}
                   </>
                 )}
               </div>
