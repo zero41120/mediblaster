@@ -1,4 +1,4 @@
-import { Sparkles } from 'lucide-react';
+import { Sparkles } from "lucide-react";
 
 export default function Landing() {
   return (
@@ -14,8 +14,11 @@ export default function Landing() {
               <Sparkles className="h-4 w-4" />
               zero41120's Combat Lab
             </div>
-            <h1 className="text-4xl font-black leading-tight text-white md:text-5xl" style={{ fontFamily: 'Syne, sans-serif' }}>
-               Overwatch Stadium Combat Models
+            <h1
+              className="text-4xl font-black leading-tight text-white md:text-5xl"
+              style={{ fontFamily: "Syne, sans-serif" }}
+            >
+              Overwatch Stadium Combat Models
             </h1>
             <p className="text-lg text-slate-300">Pick a model and dive in.</p>
           </div>
@@ -41,7 +44,9 @@ export default function Landing() {
               <div className="text-[11px] font-semibold uppercase tracking-[0.35em] text-emerald-200">
                 Juno
               </div>
-              <h2 className="text-lg font-semibold text-white">Mediblaster damage model</h2>
+              <h2 className="text-lg font-semibold text-white">
+                Mediblaster damage model
+              </h2>
               <p className="text-xs text-slate-300">Volley timing + output.</p>
               <div className="inline-flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.35em] text-emerald-300">
                 Open model
@@ -69,8 +74,12 @@ export default function Landing() {
               <div className="text-[11px] font-semibold uppercase tracking-[0.35em] text-cyan-200">
                 Soldier 76
               </div>
-              <h2 className="text-lg font-semibold text-white">Heavy Pulse Rifle</h2>
-              <p className="text-xs text-slate-300">Ammo mods + burst windows.</p>
+              <h2 className="text-lg font-semibold text-white">
+                Heavy Pulse Rifle
+              </h2>
+              <p className="text-xs text-slate-300">
+                Ammo mods + burst windows.
+              </p>
               <div className="inline-flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.35em] text-cyan-200">
                 Open model
                 <span className="transition group-hover:translate-x-1">→</span>
@@ -78,8 +87,6 @@ export default function Landing() {
             </div>
           </a>
         </section>
-
-        <section className="text-xs text-slate-500">Two models, one click each.</section>
       </main>
 
       <style>{`

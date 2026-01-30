@@ -226,9 +226,23 @@ export default function MediblasterPage() {
   };
 
   return (
-    <div className="h-screen bg-slate-900 text-slate-100 font-sans flex flex-col overflow-hidden">
+    <div className="h-screen bg-slate-900 text-slate-100 font-sans flex flex-col overflow-hidden relative">
+      {/* Background Image - Right Side Watermark (Stylized) */}
+      <div className="absolute top-0 right-0 h-full w-full md:w-2/3 lg:w-1/2 pointer-events-none overflow-hidden z-0">
+        {/* Gradients for smooth fade */}
+        <div className="absolute inset-0 bg-gradient-to-r from-slate-900 via-slate-900/80 to-transparent z-10"></div>
+        <div className="absolute inset-0 bg-gradient-to-t from-slate-900 via-transparent to-transparent z-10"></div>
+
+        {/* Image with filters to hide low-res artifacts */}
+        <img
+          src="https://static.wikia.nocookie.net/overwatch_gamepedia/images/c/cc/Juno_Stadium.png"
+          alt=""
+          className="w-full h-full object-cover object-top opacity-20 blur-[2px] grayscale mix-blend-luminosity"
+        />
+      </div>
+
       {/* Upper Section: Controls and Data (Scrollable) */}
-      <div className="flex-1 overflow-y-auto p-4 md:p-8 custom-scrollbar">
+      <div className="flex-1 overflow-y-auto p-4 md:p-8 custom-scrollbar relative z-10">
         <div className="max-w-7xl mx-auto space-y-6">
           {/* Header */}
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between pb-4 border-b border-slate-700">
