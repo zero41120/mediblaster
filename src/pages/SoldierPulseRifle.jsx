@@ -109,6 +109,26 @@ export default function SoldierPulseRifle() {
 
     return points;
   }, []);
+  const serumFireRateBreakpoints = useMemo(() => {
+    const serumBonusRate = BASE_RATE * SUPER_SERUM_ACTIVE_RATE_BONUS;
+    const minRate = BASE_RATE + serumBonusRate;
+    const maxRate = BASE_RATE * (1 + FIRE_RATE_MAX * 0.05) + serumBonusRate;
+    const minBullets = Math.floor(minRate * HALF_SECOND) + 1;
+    const maxBullets = Math.floor(maxRate * HALF_SECOND) + 1;
+    const points = [];
+
+    for (let bullets = minBullets + 1; bullets <= maxBullets; bullets += 1) {
+      const requiredRate = (bullets - 1) / HALF_SECOND;
+      const requiredBaseRate = requiredRate - serumBonusRate;
+      const pct = (requiredBaseRate / BASE_RATE - 1) / 0.05;
+      const percentLabel = Math.round(pct * 5);
+      if (pct >= 0 && pct <= FIRE_RATE_MAX) {
+        points.push({ bullets, pct, percentLabel });
+      }
+    }
+
+    return points;
+  }, []);
 
   const simulateCycle = useCallback(({
     baseDamage,
@@ -411,6 +431,24 @@ export default function SoldierPulseRifle() {
   const helixFinalSecondary = miniRocket
     ? Math.max(0, helixFinalTotal - helixFinalSingle)
     : 0;
+  const baseRateNoSerum = BASE_RATE * (1 + fireRatePct * 0.05);
+  const serumRate = baseRateNoSerum + BASE_RATE * SUPER_SERUM_ACTIVE_RATE_BONUS;
+  const autoAimBulletsNoSerum =
+    Math.floor(baseRateNoSerum * 0.5 + 1e-9) + 1;
+  const autoAimBulletsSerum = Math.floor(serumRate * 0.5 + 1e-9) + 1;
+  const baseDamageNoSerum = BASE_DAMAGE * (1 + damagePct * 0.05);
+  const burstBulletDmgNoSerum = totalDamageForBullets(
+    baseDamageNoSerum,
+    autoAimBulletsNoSerum,
+    chaingunEnabled,
+  );
+  const burstBulletDmgSerum = totalDamageForBullets(
+    baseDamageNoSerum * SUPER_SERUM_DAMAGE_MULTIPLIER,
+    autoAimBulletsSerum,
+    chaingunEnabled,
+  );
+  const totalBurstNoSerum = computed.finalRocketDmg + burstBulletDmgNoSerum;
+  const totalBurstSerum = computed.finalRocketDmg + burstBulletDmgSerum;
 
   const handleWheel = (e) => {
     if (e.deltaY !== 0) {
@@ -585,16 +623,23 @@ export default function SoldierPulseRifle() {
                     </div>
                   </div>
 
-                  <div className="relative mb-6 group">
+                  <div className="relative group mb-12">
                     {/* Breakpoints Visualization */}
                     <div className="absolute bottom-full left-[12px] right-[12px] h-8 pointer-events-none">
                       {fireRateBreakpoints.map((point) => (
                         <div
                           key={point.bullets}
-                          className="absolute bottom-0 -translate-x-1/2 flex flex-col items-center"
+                          className="absolute bottom-0 -translate-x-1/2 flex flex-col items-center pointer-events-auto cursor-pointer"
                           style={{
                             left: `${(point.pct / FIRE_RATE_MAX) * 100}%`,
                           }}
+                          onClick={() =>
+                            setFireRatePct(
+                              Math.min(FIRE_RATE_MAX, Math.ceil(point.pct)),
+                            )
+                          }
+                          role="button"
+                          tabIndex={0}
                         >
                           <span className="text-[9px] font-mono text-blue-400 font-semibold mb-0.5 whitespace-nowrap">
                             {point.bullets} ({point.percentLabel}%)
@@ -605,6 +650,33 @@ export default function SoldierPulseRifle() {
                         </div>
                       ))}
                     </div>
+                    {superSerumActive && (
+                      <div className="absolute top-full left-[12px] right-[12px] h-8 pointer-events-none">
+                        {serumFireRateBreakpoints.map((point) => (
+                          <div
+                            key={`serum-${point.bullets}`}
+                            className="absolute top-0 -translate-x-1/2 flex flex-col items-center pointer-events-auto cursor-pointer"
+                            style={{
+                              left: `${(point.pct / FIRE_RATE_MAX) * 100}%`,
+                            }}
+                            onClick={() =>
+                              setFireRatePct(
+                                Math.min(FIRE_RATE_MAX, Math.ceil(point.pct)),
+                              )
+                            }
+                            role="button"
+                            tabIndex={0}
+                          >
+                            <div className="text-slate-500 text-[8px] leading-none transform scale-x-75">
+                              ▲
+                            </div>
+                            <span className="text-[9px] font-mono text-violet-300 font-semibold mt-0.5 whitespace-nowrap">
+                              {point.bullets} ({point.percentLabel}%)
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                     <input
                       type="range"
                       min="0"
@@ -763,6 +835,7 @@ export default function SoldierPulseRifle() {
                         type="range"
                         min="0"
                         max="100"
+                        step="10"
                         value={manOnRunPct}
                         onChange={(e) => setManOnRunPct(Number(e.target.value))}
                         className="w-full h-2 bg-slate-700 rounded-lg appearance-none accent-blue-500"
@@ -796,10 +869,21 @@ export default function SoldierPulseRifle() {
                       </span>
                     </div>
                     <div className="text-5xl font-black text-white tracking-tight relative z-10">
-                      {Math.round(computed.totalBurst)}
+                      {Math.round(totalBurstNoSerum)}
                     </div>
-                    <div className="text-xs text-orange-400/80 font-mono mt-1 relative z-10">
-                      (Helix + {computed.autoAimBullets} Bullets)
+                    <div className="text-xs text-orange-400/80 font-mono mt-1 relative z-10 min-h-[28px]">
+                      (Helix + {autoAimBulletsNoSerum} Bullets)
+                      {superSerumActive && (
+                        <span className="block text-violet-300">
+                          Serum active: {Math.round(totalBurstSerum)} (Helix +{" "}
+                          {autoAimBulletsSerum} Bullets)
+                        </span>
+                      )}
+                      {!superSerumActive && (
+                        <span className="block opacity-0 select-none">
+                          Serum active placeholder
+                        </span>
+                      )}
                     </div>
                   </div>
 
@@ -866,9 +950,14 @@ export default function SoldierPulseRifle() {
                         </span>{" "}
                         attack speed, you fire{" "}
                         <span className="text-white font-bold">
-                          {computed.autoAimBullets}
+                          {autoAimBulletsNoSerum}
                         </span>{" "}
-                        bullets during the 0.5s auto-aim window.
+                        bullets in 0.5s.
+                        {superSerumActive && (
+                          <span className="block text-violet-300">
+                            Serum active: {autoAimBulletsSerum} bullets.
+                          </span>
+                        )}
                       </div>
                     </div>
                   </div>
