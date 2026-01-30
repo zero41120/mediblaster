@@ -10,7 +10,7 @@ import {
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
-import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 const SUPER_VISOR_ICON =
@@ -79,8 +79,6 @@ export default function SoldierPulseRifle() {
   const [explosionDmg, setExplosionDmg] = useState(false);
   const [zoomLevel, setZoomLevel] = useState(1);
   const [ammoAccordionOpen, setAmmoAccordionOpen] = useState(true);
-  const [rocketAccordionOpen, setRocketAccordionOpen] = useState(true);
-  const [superVisorOpen, setSuperVisorOpen] = useState(false);
   const [visualizerOpen, setVisualizerOpen] = useState(true);
 
   const scrollContainerRef = useRef(null);
@@ -112,7 +110,7 @@ export default function SoldierPulseRifle() {
     return points;
   }, []);
 
-  const simulateCycle = ({
+  const simulateCycle = useCallback(({
     baseDamage,
     baseRate,
     ammo,
@@ -126,8 +124,6 @@ export default function SoldierPulseRifle() {
     let currentTime = 0;
     let cumulativeDamage = 0;
     let currentChaingunStacks = 0;
-    const fireDuration = (bullets, rate) =>
-      bullets <= 1 ? 0 : (bullets - 1) / rate;
 
     // Initial Reload (Start of cycle visualization)
     const reloadFrames = reloadTime * TPS;
@@ -179,9 +175,6 @@ export default function SoldierPulseRifle() {
     let totalReloadTimeSeconds = 0;
     let totalBulletsFired = 0;
 
-    // For Burst Calculation (High Water Mark)
-    let bestBurstWindowDmg = 0;
-
     for (let mag = 0; mag < magazines; mag++) {
       // Phase Stats
       let serumRate = baseRate;
@@ -199,8 +192,6 @@ export default function SoldierPulseRifle() {
       if (mag > 0) {
         currentTime += SERUM_RELOAD_TIME * TPS;
       }
-
-      let serumBulletsThisMag = 0;
 
       for (let i = 0; i < ammo; i++) {
         const isSerumPhase =
@@ -225,7 +216,6 @@ export default function SoldierPulseRifle() {
         totalBulletDamage += bulletDmg;
         if (isSerumPhase) {
           serumBulletDamage += bulletDmg;
-          serumBulletsThisMag += 1;
         } else {
           normalBulletDamage += bulletDmg;
         }
@@ -331,7 +321,8 @@ export default function SoldierPulseRifle() {
       totalAmmo: totalBulletsFired, // Total rounds fired in sequence
       magSize: ammo,
     };
-  };
+  }, [miniRocket, explosionDmg]);
+
   // Base Stats (Standard Soldier, No Serum)
   const baseStats = useMemo(
     () =>
@@ -345,7 +336,7 @@ export default function SoldierPulseRifle() {
         superSerumActive: false,
         abilityPct: 0,
       }),
-    [],
+    [simulateCycle],
   );
 
   // Current Stats
@@ -377,8 +368,7 @@ export default function SoldierPulseRifle() {
     chaingunEnabled,
     superSerumActive,
     rocketEnabled,
-    miniRocket,
-    explosionDmg,
+    simulateCycle,
   ]);
 
   const maxDuration = Math.max(
@@ -1224,7 +1214,6 @@ export default function SoldierPulseRifle() {
                   stats={baseStats}
                   maxTime={maxDuration}
                   fireClass="bg-slate-300/80"
-                  zoomLevel={zoomLevel}
                 />
               </div>
             </div>
@@ -1246,7 +1235,6 @@ export default function SoldierPulseRifle() {
                   maxTime={maxDuration}
                   fireClass="bg-emerald-400"
                   glowClass={true}
-                  zoomLevel={zoomLevel}
                 />
               </div>
             </div>
@@ -1299,7 +1287,7 @@ export default function SoldierPulseRifle() {
   );
 }
 
-function TimelineTrack({ stats, maxTime, fireClass, glowClass, zoomLevel }) {
+function TimelineTrack({ stats, maxTime, fireClass, glowClass }) {
   const [tooltip, setTooltip] = useState(null);
   const [tooltipSize, setTooltipSize] = useState({ width: 0, height: 0 });
   const [trackWidth, setTrackWidth] = useState(0);
