@@ -11,7 +11,8 @@ import {
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 export default function MediblasterPage() {
   // Default parameters
@@ -421,17 +422,17 @@ export default function MediblasterPage() {
                   <MechanicBox
                     label="Intra-Burst"
                     value="1.8 frames"
-                    sub="(Fixed)"
+                    sub={`${(1.8 / TPS).toFixed(3)}s (Fixed)`}
                   />
                   <MechanicBox
                     label="Recovery"
                     value={`${Math.ceil((0.45 * TPS) / (params.attackSpeed / 100))} frames`}
-                    sub={`Base: ${Math.ceil(0.45 * TPS)}`}
+                    sub={`${(Math.ceil((0.45 * TPS) / (params.attackSpeed / 100)) / TPS).toFixed(3)}s • Base: ${Math.ceil(0.45 * TPS)}f / ${(Math.ceil(0.45 * TPS) / TPS).toFixed(3)}s`}
                   />
                   <MechanicBox
                     label="Cocking"
                     value={`${Math.ceil((0.3 * TPS) / (params.attackSpeed / 100))} frames`}
-                    sub={`Base: ${Math.ceil(0.3 * TPS)}`}
+                    sub={`${(Math.ceil((0.3 * TPS) / (params.attackSpeed / 100)) / TPS).toFixed(3)}s • Base: ${Math.ceil(0.3 * TPS)}f / ${(Math.ceil(0.3 * TPS) / TPS).toFixed(3)}s`}
                   />
                 </div>
               </div>
@@ -638,28 +639,81 @@ export default function MediblasterPage() {
 
 // Separated Timeline Logic for Reusability
 function TimelineTrack({ stats, maxTime }) {
+  const [tooltip, setTooltip] = useState(null);
+  const [tooltipSize, setTooltipSize] = useState({ width: 0, height: 0 });
+  const tooltipRef = useRef(null);
+
+  useLayoutEffect(() => {
+    if (!tooltip || !tooltipRef.current) return;
+    const rect = tooltipRef.current.getBoundingClientRect();
+    if (rect.width || rect.height) {
+      setTooltipSize({ width: rect.width, height: rect.height });
+    }
+  }, [tooltip]);
+
   if (!stats) return null;
 
-  return (
-    <div className="absolute inset-0 w-full h-full">
-      {stats.timeline.map((event, idx) => {
-        const leftPos = (event.start / (maxTime * 60)) * 100; // 60 is TPS
-        const width = (event.duration / (maxTime * 60)) * 100;
+  const TPS = 60;
+  const typeLabels = {
+    reload: "Reload",
+    cocking: "Cocking",
+    recovery: "Recovery",
+    interval: "Interval",
+    fire: "Fire",
+  };
 
-        if (event.type === "fire") {
-          // Fire events are instant lines
-          return (
-            <div
-              key={idx}
-              className="absolute top-0 h-full w-[1px] md:w-[2px] z-10 transition-colors bg-emerald-400"
-              style={{ left: `${leftPos}%` }}
-            />
-          );
-        } else if (event.type === "interval") {
-          // Empty space mostly, just visual spacing
-          return null;
-        } else {
-          // Major Blocks - Uniform colors for both tracks
+  return (
+    <>
+      <div
+        className="absolute inset-0 w-full h-full"
+        onMouseLeave={() => setTooltip(null)}
+      >
+        {stats.timeline.map((event, idx) => {
+          const leftPos = (event.start / (maxTime * TPS)) * 100;
+          const width = (event.duration / (maxTime * TPS)) * 100;
+
+          if (event.type === "fire") {
+            const isHovered = tooltip?.idx === idx;
+            return (
+              <div
+                key={idx}
+                className="absolute top-0 h-full flex justify-center z-10 hover:z-20"
+                style={{
+                  left: `${leftPos}%`,
+                  width: "12px",
+                  transform: "translateX(-50%)",
+                }}
+                onMouseEnter={(e) => {
+                  setTooltip({
+                    idx,
+                    x: e.clientX,
+                    y: e.clientY,
+                    data: event,
+                  });
+                }}
+                onMouseMove={(e) => {
+                  setTooltip({
+                    idx,
+                    x: e.clientX,
+                    y: e.clientY,
+                    data: event,
+                  });
+                }}
+              >
+                <div
+                  className={`h-full transition-all bg-emerald-400 ${
+                    isHovered
+                      ? "w-[3px] brightness-125 shadow-[0_0_8px_rgba(16,185,129,0.7)]"
+                      : "w-[2px] shadow-[0_0_6px_rgba(16,185,129,0.4)]"
+                  }`}
+                />
+              </div>
+            );
+          }
+          if (event.type === "interval") {
+            return null;
+          }
+
           let colorClass = "bg-gray-700";
           if (event.type === "reload") colorClass = "bg-red-500 border-red-400";
           if (event.type === "cocking")
@@ -670,13 +724,28 @@ function TimelineTrack({ stats, maxTime }) {
           return (
             <div
               key={idx}
-              className={`absolute top-0 h-full border-l border-r border-white/5 ${colorClass} flex items-center justify-center overflow-hidden`}
+              className={`absolute top-0 h-full border-l border-r border-white/5 ${colorClass} flex items-center justify-center overflow-hidden transition-all`}
               style={{
                 left: `${leftPos}%`,
                 width: `${width}%`,
               }}
+              onMouseEnter={(e) => {
+                setTooltip({
+                  idx,
+                  x: e.clientX,
+                  y: e.clientY,
+                  data: event,
+                });
+              }}
+              onMouseMove={(e) => {
+                setTooltip({
+                  idx,
+                  x: e.clientX,
+                  y: e.clientY,
+                  data: event,
+                });
+              }}
             >
-              {/* Only show label if wide enough relative to current view */}
               {width > 0.5 && (
                 <span className="text-[9px] font-bold uppercase truncate px-1 select-none text-white drop-shadow-md">
                   {event.label}
@@ -684,9 +753,81 @@ function TimelineTrack({ stats, maxTime }) {
               )}
             </div>
           );
-        }
-      })}
-    </div>
+        })}
+      </div>
+
+      {tooltip &&
+        (() => {
+          const tooltipLeft = Math.min(
+            Math.max(tooltip.x + 12, 8),
+            window.innerWidth - tooltipSize.width - 8,
+          );
+          const tooltipTop = Math.min(
+            Math.max(tooltip.y - tooltipSize.height - 16, 8),
+            window.innerHeight - tooltipSize.height - 8,
+          );
+          const isFire = tooltip.data.type === "fire";
+          const title = isFire
+            ? `Bullet #${tooltip.data.bulletIndex}`
+            : typeLabels[tooltip.data.type] || "Event";
+
+          return createPortal(
+            <div
+              className="fixed z-[9999] pointer-events-none pb-2"
+              style={{ left: tooltipLeft, top: tooltipTop }}
+            >
+              <div
+                ref={tooltipRef}
+                className="bg-slate-800 border border-slate-600 rounded-lg p-2 shadow-xl whitespace-nowrap min-w-[110px] relative"
+              >
+                <div className="text-[10px] text-slate-400 font-bold uppercase mb-1 border-b border-slate-700 pb-1">
+                  {title}
+                </div>
+                {isFire ? (
+                  <>
+                    <div className="flex justify-between gap-4 items-center">
+                      <span className="text-[9px] text-slate-500 uppercase">
+                        Total
+                      </span>
+                      <span className="text-xs font-mono font-bold text-white">
+                        {tooltip.data.damage.toFixed(1)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between gap-4 items-center">
+                      <span className="text-[9px] text-slate-500 uppercase">
+                        Time
+                      </span>
+                      <span className="text-xs font-mono text-slate-300">
+                        {(tooltip.data.start / TPS).toFixed(3)}s
+                      </span>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="flex justify-between gap-4 items-center">
+                      <span className="text-[9px] text-slate-500 uppercase">
+                        Duration
+                      </span>
+                      <span className="text-xs font-mono text-slate-300">
+                        {(tooltip.data.duration / TPS).toFixed(3)}s
+                      </span>
+                    </div>
+                    <div className="flex justify-between gap-4 items-center">
+                      <span className="text-[9px] text-slate-500 uppercase">
+                        Start
+                      </span>
+                      <span className="text-xs font-mono text-slate-300">
+                        {(tooltip.data.start / TPS).toFixed(3)}s
+                      </span>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>,
+            document.body,
+          );
+        })()}
+    </>
   );
 }
 
