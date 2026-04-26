@@ -20,8 +20,11 @@ export default function MediblasterPage() {
     bulletValue: 7.5,
     weaponPower: 100,
     attackSpeed: 100,
+    enemyHp: 750,
     clipMods: { m20: false, m25: false, m40: false },
     withReload: true,
+    tommygunEnabled: false,
+    tommygunMode: "window",
   });
 
   const [zoomLevel, setZoomLevel] = useState(1);
@@ -35,6 +38,8 @@ export default function MediblasterPage() {
 
   const BASE_CLIP = 180;
   const TPS = 60;
+  const isDamageMode = params.bulletValue === 7.5;
+  const isTommygunActive = isDamageMode && params.tommygunEnabled;
 
   // Calculate current clip size based on modifiers
   const currentClipSize = useMemo(() => {
@@ -47,16 +52,27 @@ export default function MediblasterPage() {
 
   // Core calculation logic extracted for reuse
   const calculateCycle = (config) => {
-    const { bulletValue, weaponPower, attackSpeed, clipSize, withReload } =
-      config;
+    const {
+      bulletValue,
+      weaponPower,
+      attackSpeed,
+      clipSize,
+      withReload,
+      tommygunEnabled,
+      tommygunMode,
+    } = config;
 
     const VOLLEY_SIZE = 12;
     const INTRA_BURST_INTERVAL_FRAMES = 0.03 * TPS; // 1.8 frames
     const RELOAD_FRAMES = withReload ? 1.5 * TPS : 0;
     const COCKING_FRAMES = 0.3 * TPS;
     const RECOVERY_FRAMES = 0.45 * TPS;
+    const TOMMYGUN_WINDOW_FRAMES = 3 * TPS;
+    const TOMMYGUN_PROC_FRAMES = 0.25 * TPS;
 
-    const attackSpeedPercent = attackSpeed / 100;
+    const effectiveAttackSpeed =
+      attackSpeed + (tommygunEnabled ? 10 : 0);
+    const attackSpeedPercent = effectiveAttackSpeed / 100;
     const weaponPowerPercent = weaponPower / 100;
 
     // ceil() logic from original code
@@ -65,6 +81,10 @@ export default function MediblasterPage() {
 
     let currentTime = 0;
     const timeline = [];
+    let firstFireTime = null;
+    let lastProcTime = null;
+    let tommygunProcs = 0;
+    let volleyProcCount = 0;
 
     // 1. Reload Phase
     if (withReload) {
@@ -92,6 +112,9 @@ export default function MediblasterPage() {
 
     for (let i = 1; i <= clipSize; i++) {
       const isFirstBulletOfVolley = (i - 1) % VOLLEY_SIZE === 0;
+      if (isFirstBulletOfVolley) {
+        volleyProcCount = 0;
+      }
 
       // Intra-burst interval
       if (!isFirstBulletOfVolley) {
@@ -106,12 +129,30 @@ export default function MediblasterPage() {
 
       // Fire Event
       damageAccumulated += damagePerShot;
+      if (firstFireTime === null) firstFireTime = currentTime;
+      const withinTommyWindow =
+        tommygunEnabled &&
+        firstFireTime !== null &&
+        (tommygunMode === "always" ||
+          currentTime - firstFireTime <= TOMMYGUN_WINDOW_FRAMES + 1e-9);
+      const canProc =
+        withinTommyWindow &&
+        volleyProcCount < 2 &&
+        (lastProcTime === null ||
+          currentTime - lastProcTime >= TOMMYGUN_PROC_FRAMES - 1e-9);
+      if (canProc) {
+        lastProcTime = currentTime;
+        tommygunProcs += 1;
+        volleyProcCount += 1;
+      }
       timeline.push({
         type: "fire",
         start: currentTime,
         duration: 0,
         damage: damageAccumulated,
         bulletIndex: i,
+        tommygunProc: canProc,
+        tommygunProcIndex: canProc ? tommygunProcs : null,
       });
 
       // Recovery Phase
@@ -139,6 +180,7 @@ export default function MediblasterPage() {
       totalFrames: currentTime,
       totalDamage,
       dps,
+      tommygunProcs,
     };
   };
 
@@ -152,8 +194,10 @@ export default function MediblasterPage() {
         attackSpeed: 100,
         clipSize: BASE_CLIP,
         withReload: true,
+        tommygunEnabled: isTommygunActive,
+        tommygunMode: params.tommygunMode,
       }),
-    [params.bulletValue],
+    [params.bulletValue, isTommygunActive, params.tommygunMode],
   );
 
   // Generate stats for Current Profile (User Config)
@@ -165,8 +209,10 @@ export default function MediblasterPage() {
         attackSpeed: params.attackSpeed,
         clipSize: currentClipSize,
         withReload: params.withReload,
+        tommygunEnabled: isTommygunActive,
+        tommygunMode: params.tommygunMode,
       }),
-    [params, currentClipSize],
+    [params, currentClipSize, isTommygunActive],
   );
 
   // Determine the maximum time scale for the comparison view
@@ -175,11 +221,83 @@ export default function MediblasterPage() {
     currentStats.totalTimeSeconds,
   );
 
+  const currentTommygunBonusDamage =
+    isTommygunActive ? currentStats.tommygunProcs * 0.01 * params.enemyHp : 0;
+  const currentEffectiveTotalDamage =
+    currentStats.totalDamage + currentTommygunBonusDamage;
+  const baseEffectiveTotalDamage = baseStats.totalDamage;
+  const currentEffectiveDps =
+    currentStats.totalTimeSeconds > 0
+      ? currentEffectiveTotalDamage / currentStats.totalTimeSeconds
+      : 0;
+  const baseEffectiveDps = baseStats.dps;
+  const tommygunBonusDamage = currentTommygunBonusDamage;
+  const tommygunImpactPct =
+    params.enemyHp > 0 ? (tommygunBonusDamage / params.enemyHp) * 100 : 0;
+  const baseDamageAt100 =
+    params.weaponPower > 0
+      ? currentStats.totalDamage / (params.weaponPower / 100)
+      : 0;
+  const tommygunEqPowerPct =
+    baseDamageAt100 > 0 ? (tommygunBonusDamage / baseDamageAt100) * 100 : 0;
+  const tommygunEqWeaponPower = 100 + tommygunEqPowerPct;
+
+  const tommygunBreakpoints = useMemo(() => {
+    if (!isTommygunActive || params.tommygunMode !== "window") return [];
+    const points = [];
+    let lastProcs = null;
+
+    for (let speed = 100; speed <= 200; speed += 5) {
+      const stats = calculateCycle({
+        bulletValue: params.bulletValue,
+        weaponPower: params.weaponPower,
+        attackSpeed: speed,
+        clipSize: currentClipSize,
+        withReload: params.withReload,
+        tommygunEnabled: true,
+        tommygunMode: "window",
+      });
+
+      if (lastProcs === null || stats.tommygunProcs !== lastProcs) {
+        points.push({ value: speed, procs: stats.tommygunProcs });
+        lastProcs = stats.tommygunProcs;
+      }
+    }
+
+    return points;
+  }, [
+    isTommygunActive,
+    params.bulletValue,
+    params.weaponPower,
+    params.withReload,
+    currentClipSize,
+    params.tommygunMode,
+  ]);
+
+  const hasTommygunBreakpoints =
+    isTommygunActive && tommygunBreakpoints.length > 0;
+
   const handleParamChange = (key, value) => {
     setParams((prev) => ({
       ...prev,
-      [key]: key === "withReload" ? value : Number(value),
+      [key]:
+        key === "withReload" || key === "tommygunEnabled" || key === "tommygunMode"
+          ? value
+          : Number(value),
     }));
+  };
+
+  const handleTommygunToggle = () => {
+    setParams((prev) => {
+      const nextEnabled = !prev.tommygunEnabled;
+
+      return {
+        ...prev,
+        tommygunEnabled: nextEnabled,
+        attackSpeed:
+          nextEnabled && prev.attackSpeed < 110 ? 110 : prev.attackSpeed,
+      };
+    });
   };
 
   const toggleClipMod = (mod) => {
@@ -305,27 +423,98 @@ export default function MediblasterPage() {
                   </div>
                 </div>
 
-                {/* Updated Ranges: 100% to 200% */}
-                <ControlInput
-                  label="Weapon Power"
-                  value={params.weaponPower}
-                  onChange={(v) => handleParamChange("weaponPower", v)}
-                  min={100}
-                  max={200}
-                  step={5}
-                  unit="%"
-                  tickStep={10}
-                />
-                <ControlInput
-                  label="Attack Speed"
-                  value={params.attackSpeed}
-                  onChange={(v) => handleParamChange("attackSpeed", v)}
-                  min={100}
-                  max={200}
-                  step={5}
-                  unit="%"
-                  tickStep={10}
-                />
+                {/* Weapon Power */}
+                <div>
+                  <div className="flex justify-between mb-1 items-end">
+                    <div>
+                      <label className="text-xs font-medium block text-slate-400 uppercase">
+                        Weapon Power
+                      </label>
+                      <span className="text-xs text-emerald-400 font-bold">
+                        {params.weaponPower}%
+                      </span>
+                    </div>
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-white font-mono font-bold text-lg">
+                        {params.weaponPower}
+                      </span>
+                      <span className="text-[10px] uppercase tracking-wide text-slate-400">
+                        percent
+                      </span>
+                    </div>
+                  </div>
+                  <input
+                    type="range"
+                    min="100"
+                    max="200"
+                    step="5"
+                    value={params.weaponPower}
+                    onChange={(e) =>
+                      handleParamChange("weaponPower", e.target.value)
+                    }
+                    className="w-full h-2 bg-slate-700 rounded-lg appearance-none accent-emerald-500"
+                  />
+                </div>
+
+                {/* Attack Speed */}
+                <div>
+                  <div className="flex justify-between mb-10 items-end">
+                    <div>
+                      <label className="text-xs font-medium block text-slate-400 uppercase">
+                        Attack Speed
+                      </label>
+                      <span className="text-xs text-emerald-400 font-bold">
+                        {params.attackSpeed}%
+                      </span>
+                    </div>
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-white font-mono font-bold text-lg">
+                        {params.attackSpeed}
+                      </span>
+                      <span className="text-[10px] uppercase tracking-wide text-slate-400">
+                        percent
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="relative group mb-6">
+                    <div className="absolute bottom-full left-[12px] right-[12px] h-8 pointer-events-none">
+                      {isTommygunActive &&
+                        tommygunBreakpoints.map((point) => (
+                          <div
+                            key={point.value}
+                            className="absolute bottom-0 -translate-x-1/2 flex flex-col items-center pointer-events-auto cursor-pointer"
+                            style={{
+                              left: `${((point.value - 100) / 100) * 100}%`,
+                            }}
+                            onClick={() =>
+                              handleParamChange("attackSpeed", point.value)
+                            }
+                            role="button"
+                            tabIndex={0}
+                          >
+                            <span className="text-[9px] font-mono text-fuchsia-300 font-semibold mb-0.5 whitespace-nowrap">
+                              {point.procs} ({point.value}%)
+                            </span>
+                            <div className="text-slate-500 text-[8px] leading-none transform scale-x-75">
+                              ▼
+                            </div>
+                          </div>
+                        ))}
+                    </div>
+                    <input
+                      type="range"
+                      min="100"
+                      max="200"
+                      step="5"
+                      value={params.attackSpeed}
+                      onChange={(e) =>
+                        handleParamChange("attackSpeed", e.target.value)
+                      }
+                      className="w-full h-2 bg-slate-700 rounded-lg appearance-none accent-emerald-500 cursor-pointer relative z-10"
+                    />
+                  </div>
+                </div>
 
                 {/* New Clip Size Controls */}
                 <div className="space-y-2">
@@ -376,28 +565,116 @@ export default function MediblasterPage() {
                     />
                   </button>
                 </div>
+
+                {isDamageMode && (
+                  <div className="bg-slate-900/50 rounded-lg border border-slate-700/70 p-3 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex flex-col">
+                        <span className="text-sm font-semibold text-slate-200">
+                          Three Tap Tommygun
+                        </span>
+                        <span className="text-[10px] text-slate-400 leading-tight">
+                          After ability, adds +10% attack speed and +1% max HP
+                          every 0.25s.
+                        </span>
+                      </div>
+                      <button
+                        onClick={handleTommygunToggle}
+                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-fuchsia-500 focus:ring-offset-2 focus:ring-offset-slate-900 ${params.tommygunEnabled ? "bg-fuchsia-500" : "bg-slate-600"}`}
+                      >
+                        <span
+                          className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${params.tommygunEnabled ? "translate-x-6" : "translate-x-1"}`}
+                        />
+                      </button>
+                    </div>
+                    <div className="flex bg-slate-800/60 rounded-lg p-1 border border-slate-700">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handleParamChange("tommygunMode", "window")
+                        }
+                        className={`flex-1 py-1 text-[10px] font-semibold uppercase tracking-wide rounded-md transition-all ${
+                          params.tommygunMode === "window"
+                            ? "bg-fuchsia-500 text-white shadow-sm"
+                            : "text-slate-400 hover:text-slate-200"
+                        }`}
+                      >
+                        First 3s
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handleParamChange("tommygunMode", "always")
+                        }
+                        className={`flex-1 py-1 text-[10px] font-semibold uppercase tracking-wide rounded-md transition-all ${
+                          params.tommygunMode === "always"
+                            ? "bg-fuchsia-500 text-white shadow-sm"
+                            : "text-slate-400 hover:text-slate-200"
+                        }`}
+                      >
+                        Always Active
+                      </button>
+                    </div>
+                    <div className="text-[10px] text-slate-500 font-mono">
+                      {params.tommygunMode === "window"
+                        ? "Max 12 procs (12% max HP) in a 3s window."
+                        : "Active for the entire cycle."}
+                    </div>
+                    <div className="pt-1">
+                      <div className="flex justify-between mb-1 items-end">
+                        <div>
+                          <label className="text-[10px] font-semibold block text-slate-500 uppercase">
+                            Enemy Max HP
+                          </label>
+                          <span className="text-[10px] text-emerald-400 font-bold">
+                            {params.enemyHp} HP
+                          </span>
+                        </div>
+                        <div className="flex items-baseline gap-2">
+                          <span className="text-white font-mono font-bold text-sm">
+                            {params.enemyHp}
+                          </span>
+                          <span className="text-[9px] uppercase tracking-wide text-slate-500">
+                            health
+                          </span>
+                        </div>
+                      </div>
+                      <input
+                        type="range"
+                        min="225"
+                        max="1225"
+                        step="25"
+                        value={params.enemyHp}
+                        onChange={(e) =>
+                          handleParamChange("enemyHp", e.target.value)
+                        }
+                        className="w-full h-1.5 bg-slate-700 rounded-lg appearance-none accent-emerald-500"
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 
             {/* Stats & Mechanics */}
             <div className="lg:col-span-2 space-y-6">
               {/* Stats Cards */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
                 <StatCard
                   icon={<Zap className="w-5 h-5 text-yellow-400" />}
                   label="Output HPS/DPS"
-                  value={currentStats.dps.toFixed(2)}
-                  subtext={`Base: ${baseStats.dps.toFixed(2)}`}
-                  trend={currentStats.dps - baseStats.dps}
-                  baseValue={baseStats.dps}
+                  value={currentEffectiveDps.toFixed(2)}
+                  subtext={`Base: ${baseEffectiveDps.toFixed(2)}`}
+                  trend={currentEffectiveDps - baseEffectiveDps}
+                  baseValue={baseEffectiveDps}
                 />
                 <StatCard
                   icon={<Crosshair className="w-5 h-5 text-red-400" />}
                   label="Total Output"
-                  value={Math.round(currentStats.totalDamage).toLocaleString()}
-                  subtext={`Base: ${Math.round(baseStats.totalDamage).toLocaleString()}`}
-                  trend={currentStats.totalDamage - baseStats.totalDamage}
-                  baseValue={baseStats.totalDamage}
+                  value={Math.round(currentEffectiveTotalDamage).toLocaleString()}
+                  subtext={`Base: ${Math.round(baseEffectiveTotalDamage).toLocaleString()}`}
+                  trend={currentEffectiveTotalDamage - baseEffectiveTotalDamage}
+                  baseValue={baseEffectiveTotalDamage}
                 />
                 <StatCard
                   icon={<Clock className="w-5 h-5 text-blue-400" />}
@@ -411,6 +688,93 @@ export default function MediblasterPage() {
                   baseValue={baseStats.totalTimeSeconds}
                 />
               </div>
+
+              {isDamageMode && (
+                <div className="overflow-hidden rounded-xl border border-fuchsia-400/30 bg-gradient-to-br from-fuchsia-500/15 via-slate-800/90 to-slate-800 shadow-lg shadow-fuchsia-950/20">
+                  <div className="flex flex-col gap-4 p-5 md:flex-row md:items-stretch md:justify-between">
+                    <div className="min-w-0 md:max-w-sm">
+                      <div className="flex items-center gap-2 text-fuchsia-200">
+                        <Zap className="h-5 w-5" />
+                        <h3 className="text-sm font-bold uppercase tracking-[0.18em]">
+                          Tommygun Impact
+                        </h3>
+                      </div>
+                      <p className="mt-2 text-sm leading-relaxed text-slate-300">
+                        {params.tommygunMode === "always"
+                          ? "Tracking every eligible proc across the full firing cycle."
+                          : "Tracking eligible procs inside the first 3 seconds after activation."}
+                      </p>
+                      <div className="mt-4 flex flex-wrap gap-2 text-[10px] font-semibold uppercase tracking-wide text-slate-300">
+                        <span className="rounded-full border border-fuchsia-300/30 bg-fuchsia-400/10 px-3 py-1 text-fuchsia-200">
+                          {params.tommygunEnabled ? "Enabled" : "Disabled"}
+                        </span>
+                        <span className="rounded-full border border-slate-600 bg-slate-900/40 px-3 py-1">
+                          {params.tommygunMode === "always"
+                            ? "Always active"
+                            : "First 3s window"}
+                        </span>
+                        <span className="rounded-full border border-slate-600 bg-slate-900/40 px-3 py-1">
+                          {params.enemyHp} enemy HP
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="grid flex-1 grid-cols-1 gap-3 sm:grid-cols-3">
+                      <TommygunMetric
+                        label={
+                          params.tommygunMode === "always"
+                            ? "Cycle Procs"
+                            : "Window Procs"
+                        }
+                        value={currentStats.tommygunProcs}
+                        subtext={`Base ${baseStats.tommygunProcs}`}
+                      />
+                      <TommygunMetric
+                        label="Bonus Damage"
+                        value={`+${Math.round(tommygunBonusDamage)}`}
+                        subtext={`${tommygunImpactPct.toFixed(1)}% max HP`}
+                      />
+                      <TommygunMetric
+                        label="Eq Weapon Power"
+                        value={`+${tommygunEqPowerPct.toFixed(1)}%`}
+                        subtext={`100% -> ${tommygunEqWeaponPower.toFixed(1)}%`}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="min-h-[108px] border-t border-fuchsia-300/10 bg-slate-950/30 px-5 py-3">
+                    <div className="mb-2 flex items-center justify-between gap-3 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                      <span>Attack speed breakpoints</span>
+                      <span className="font-mono text-fuchsia-200">
+                        {hasTommygunBreakpoints
+                          ? "click markers above the slider"
+                          : "reserved to prevent layout shift"}
+                      </span>
+                    </div>
+                    {hasTommygunBreakpoints ? (
+                      <div className="flex flex-wrap gap-2">
+                        {tommygunBreakpoints.map((point) => (
+                          <button
+                            key={point.value}
+                            type="button"
+                            onClick={() =>
+                              handleParamChange("attackSpeed", point.value)
+                            }
+                            className="rounded-lg border border-fuchsia-300/20 bg-fuchsia-400/10 px-3 py-1.5 text-xs font-mono text-fuchsia-100 transition hover:border-fuchsia-300/50 hover:bg-fuchsia-400/20"
+                          >
+                            {point.value}% AS: {point.procs} procs
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="flex min-h-[56px] items-center rounded-lg border border-dashed border-fuchsia-300/15 bg-slate-900/20 px-3 text-xs text-slate-400">
+                        Enable Tommygun in damage mode to populate breakpoint
+                        shortcuts here.
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
 
               {/* Mechanics Breakdown */}
               <div className="bg-slate-800 rounded-xl p-6 border border-slate-700 shadow-sm">
@@ -479,6 +843,7 @@ export default function MediblasterPage() {
               <LegendItem color="bg-orange-500" label="Cock" />
               <LegendItem color="bg-emerald-500" label="Fire" />
               <LegendItem color="bg-blue-500" label="Recover" />
+              <LegendItem color="bg-fuchsia-400" label="Tommygun Proc" />
             </div>
 
             <div className="flex items-center space-x-2 bg-slate-900/50 px-3 py-1 rounded-full border border-slate-700">
@@ -701,10 +1066,14 @@ function TimelineTrack({ stats, maxTime }) {
                 }}
               >
                 <div
-                  className={`h-full transition-all bg-emerald-400 ${
+                  className={`h-full transition-all ${
+                    event.tommygunProc
+                      ? "bg-fuchsia-400 shadow-[0_0_8px_rgba(232,121,249,0.7)]"
+                      : "bg-emerald-400 shadow-[0_0_6px_rgba(16,185,129,0.4)]"
+                  } ${
                     isHovered
-                      ? "w-[3px] brightness-125 shadow-[0_0_8px_rgba(16,185,129,0.7)]"
-                      : "w-[2px] shadow-[0_0_6px_rgba(16,185,129,0.4)]"
+                      ? "w-[3px] brightness-125"
+                      : "w-[2px]"
                   }`}
                 />
               </div>
@@ -801,6 +1170,11 @@ function TimelineTrack({ stats, maxTime }) {
                         {(tooltip.data.start / TPS).toFixed(3)}s
                       </span>
                     </div>
+                    {tooltip.data.tommygunProc && (
+                      <div className="mt-1 text-[9px] font-semibold uppercase text-fuchsia-300">
+                        Tommygun proc #{tooltip.data.tommygunProcIndex}
+                      </div>
+                    )}
                   </>
                 ) : (
                   <>
@@ -828,65 +1202,6 @@ function TimelineTrack({ stats, maxTime }) {
           );
         })()}
     </>
-  );
-}
-
-function ControlInput({
-  label,
-  value,
-  onChange,
-  min,
-  max,
-  step,
-  unit,
-  tickStep,
-}) {
-  const ticks = useMemo(() => {
-    if (!tickStep) return [];
-    const t = [];
-    // Start from first tick after min, or min if it aligns
-    const firstTick = Math.ceil(min / tickStep) * tickStep;
-    for (let i = firstTick; i <= max; i += tickStep) {
-      t.push(i);
-    }
-    return t;
-  }, [min, max, tickStep]);
-
-  return (
-    <div className="space-y-1">
-      <div className="flex justify-between text-sm">
-        <label className="text-slate-300 font-medium">{label}</label>
-        <span className="text-emerald-400 font-mono">
-          {value}
-          {unit}
-        </span>
-      </div>
-      <div className="relative w-full h-6 flex items-center">
-        {/* Custom Track Background with Ticks */}
-        <div className="absolute inset-x-0 h-2 bg-slate-700 rounded-lg overflow-hidden pointer-events-none">
-          {ticks.map((tickVal) => {
-            const percent = ((tickVal - min) / (max - min)) * 100;
-            return (
-              <div
-                key={tickVal}
-                className="absolute top-0 bottom-0 w-0.5 bg-slate-600/50"
-                style={{ left: `${percent}%` }}
-              />
-            );
-          })}
-        </div>
-
-        <input
-          type="range"
-          min={min}
-          max={max}
-          step={step}
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          className="relative z-10 w-full h-2 bg-transparent rounded-lg appearance-none cursor-pointer accent-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
-        />
-      </div>
-    </div>
   );
 }
 
@@ -967,6 +1282,18 @@ function StatCard({
       ) : (
         <div className="text-xs text-slate-600">-</div>
       )}
+    </div>
+  );
+}
+
+function TommygunMetric({ label, value, subtext }) {
+  return (
+    <div className="rounded-xl border border-white/10 bg-slate-950/35 p-4 shadow-inner shadow-black/20">
+      <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-fuchsia-200/80">
+        {label}
+      </div>
+      <div className="mt-2 text-2xl font-black text-white">{value}</div>
+      <div className="mt-1 text-xs font-mono text-slate-400">{subtext}</div>
     </div>
   );
 }

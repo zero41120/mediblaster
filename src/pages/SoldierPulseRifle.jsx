@@ -42,6 +42,8 @@ const SUPER_SERUM_DAMAGE_MULTIPLIER = 0.85;
 const TPS = 60;
 const SERUM_RELOAD_TIME = 0;
 const SERUM_ACTIVE_DURATION = 5;
+const TOMMYGUN_WINDOW_SECONDS = 3;
+const TOMMYGUN_PROC_SECONDS = 0.25;
 
 const AMMO_OPTIONS = [
   { label: "+20%", value: 0.2 },
@@ -66,12 +68,34 @@ const totalDamageForBullets = (baseDamage, bullets, chaingunEnabled) => {
   return baseDamage * bullets * bonusMultiplier;
 };
 
+const countTommygunProcsInWindow = (bullets, rate) => {
+  if (bullets <= 0 || rate <= 0) return 0;
+  let procs = 0;
+  let lastProcTime = null;
+
+  for (let i = 0; i < bullets; i += 1) {
+    const shotTime = i / rate;
+    if (
+      lastProcTime === null ||
+      shotTime - lastProcTime >= TOMMYGUN_PROC_SECONDS - 1e-9
+    ) {
+      procs += 1;
+      lastProcTime = shotTime;
+    }
+  }
+
+  return procs;
+};
+
 export default function SoldierPulseRifle() {
   const [damagePct, setDamagePct] = useState(0);
   const [fireRatePct, setFireRatePct] = useState(0);
   const [abilityPct, setAbilityPct] = useState(0);
   const [activeAmmoMods, setActiveAmmoMods] = useState([]);
   const [chaingunEnabled, setChaingunEnabled] = useState(false);
+  const [tommygunEnabled, setTommygunEnabled] = useState(false);
+  const [tommygunMode, setTommygunMode] = useState("window");
+  const [enemyHp, setEnemyHp] = useState(750);
   const [superSerumActive, setSuperSerumActive] = useState(false);
   const [manOnRunPct, setManOnRunPct] = useState(0);
   const [rocketEnabled, setRocketEnabled] = useState(true);
@@ -137,6 +161,8 @@ export default function SoldierPulseRifle() {
     reloadTime,
     rocketOn,
     chaingunOn,
+    tommygunOn,
+    tommygunMode,
     superSerumActive,
     abilityPct,
   }) => {
@@ -144,6 +170,9 @@ export default function SoldierPulseRifle() {
     let currentTime = 0;
     let cumulativeDamage = 0;
     let currentChaingunStacks = 0;
+    let tommygunActivationTime = null;
+    let lastTommygunProcTime = null;
+    let tommygunProcs = 0;
 
     // Initial Reload (Start of cycle visualization)
     const reloadFrames = reloadTime * TPS;
@@ -182,6 +211,9 @@ export default function SoldierPulseRifle() {
       });
 
       currentTime += rocketFrames;
+      if (tommygunOn) {
+        tommygunActivationTime = currentTime / TPS;
+      }
     }
 
     // Firing Sequence
@@ -203,7 +235,10 @@ export default function SoldierPulseRifle() {
 
       if (superSerumActive && mag === 1) {
         // Phase 2: Passive + Active Rate, Damage Penalty
-        serumRate = baseRate + BASE_RATE * SUPER_SERUM_ACTIVE_RATE_BONUS;
+        serumRate =
+          baseRate +
+          BASE_RATE * SUPER_SERUM_ACTIVE_RATE_BONUS +
+          (tommygunOn ? BASE_RATE * 0.1 : 0);
         serumStartTimeSeconds = currentTime / TPS;
         serumEndTimeSeconds = serumStartTimeSeconds + SERUM_ACTIVE_DURATION;
       }
@@ -214,6 +249,9 @@ export default function SoldierPulseRifle() {
       }
 
       for (let i = 0; i < ammo; i++) {
+        if (tommygunOn && tommygunActivationTime === null) {
+          tommygunActivationTime = currentTime / TPS;
+        }
         const isSerumPhase =
           serumEndTimeSeconds !== null
             ? currentTime / TPS <= serumEndTimeSeconds + 1e-9
@@ -231,6 +269,22 @@ export default function SoldierPulseRifle() {
 
         const chaingunMult = 1 + effectiveStack * CHAINGUN_STACK_PER_SHOT;
         const bulletDmg = baseDamage * bulletDamageMult * chaingunMult;
+        const currentTimeSeconds = currentTime / TPS;
+        const withinTommygunWindow =
+          tommygunOn &&
+          tommygunActivationTime !== null &&
+          (tommygunMode === "always" ||
+            currentTimeSeconds - tommygunActivationTime <=
+              TOMMYGUN_WINDOW_SECONDS + 1e-9);
+        const tommygunProc =
+          withinTommygunWindow &&
+          (lastTommygunProcTime === null ||
+            currentTimeSeconds - lastTommygunProcTime >=
+              TOMMYGUN_PROC_SECONDS - 1e-9);
+        if (tommygunProc) {
+          lastTommygunProcTime = currentTimeSeconds;
+          tommygunProcs += 1;
+        }
 
         cumulativeDamage += bulletDmg;
         totalBulletDamage += bulletDmg;
@@ -261,8 +315,12 @@ export default function SoldierPulseRifle() {
           serumTrigger,
           serumActiveBullet,
           isMaxChaingun,
+          tommygunProc,
+          tommygunProcIndex: tommygunProc ? tommygunProcs : null,
         });
-        const intervalRate = isSerumPhase ? serumRate : baseRate;
+        const intervalRate = isSerumPhase
+          ? serumRate
+          : baseRate + (tommygunOn ? BASE_RATE * 0.1 : 0);
         const dt = 1 / intervalRate;
         if (i < ammo - 1) {
           currentTime += TPS * dt;
@@ -291,8 +349,13 @@ export default function SoldierPulseRifle() {
     let burstDmgMult = 1.0;
 
     if (superSerumActive) {
-      burstRate = baseRate + BASE_RATE * SUPER_SERUM_ACTIVE_RATE_BONUS;
+      burstRate =
+        baseRate +
+        BASE_RATE * SUPER_SERUM_ACTIVE_RATE_BONUS +
+        (tommygunOn ? BASE_RATE * 0.1 : 0);
       burstDmgMult = SUPER_SERUM_DAMAGE_MULTIPLIER;
+    } else if (tommygunOn) {
+      burstRate = baseRate + BASE_RATE * 0.1;
     }
 
     // Auto-aim bullets in 0.5s
@@ -314,8 +377,10 @@ export default function SoldierPulseRifle() {
 
     // Effective Rate for display (Max active rate)
     const effectiveRate = superSerumActive
-      ? baseRate + BASE_RATE * SUPER_SERUM_ACTIVE_RATE_BONUS
-      : baseRate;
+      ? baseRate +
+        BASE_RATE * SUPER_SERUM_ACTIVE_RATE_BONUS +
+        (tommygunOn ? BASE_RATE * 0.1 : 0)
+      : baseRate + (tommygunOn ? BASE_RATE * 0.1 : 0);
     const effectiveDamagePerShot =
       baseDamage * (superSerumActive ? SUPER_SERUM_DAMAGE_MULTIPLIER : 1);
 
@@ -334,6 +399,7 @@ export default function SoldierPulseRifle() {
       autoAimBullets,
       bulletBurstDmg: burstBulletDmg,
       totalFireTimeSeconds,
+      tommygunProcs,
 
       // Display stats
       displayRate: effectiveRate,
@@ -353,6 +419,8 @@ export default function SoldierPulseRifle() {
         reloadTime: RELOAD,
         rocketOn: true,
         chaingunOn: false,
+        tommygunOn: false,
+        tommygunMode: "window",
         superSerumActive: false,
         abilityPct: 0,
       }),
@@ -376,6 +444,8 @@ export default function SoldierPulseRifle() {
       reloadTime: RELOAD,
       rocketOn: rocketEnabled,
       chaingunOn: chaingunEnabled,
+      tommygunOn: tommygunEnabled,
+      tommygunMode,
       superSerumActive: superSerumActive,
       abilityPct: abilityPct,
     });
@@ -386,6 +456,8 @@ export default function SoldierPulseRifle() {
     totalAmmoBonus,
     manOnRunPct,
     chaingunEnabled,
+    tommygunEnabled,
+    tommygunMode,
     superSerumActive,
     rocketEnabled,
     simulateCycle,
@@ -396,10 +468,21 @@ export default function SoldierPulseRifle() {
     currentStats.totalTimeSeconds,
   );
 
+  const currentTommygunBonusDamage =
+    tommygunEnabled ? currentStats.tommygunProcs * 0.01 * enemyHp : 0;
+  const currentEffectiveTotalDamage =
+    currentStats.totalDamage + currentTommygunBonusDamage;
+  const currentEffectiveSustainedDps =
+    currentStats.totalTimeSeconds > 0
+      ? currentEffectiveTotalDamage / currentStats.totalTimeSeconds
+      : 0;
+  const tommygunImpactPct =
+    enemyHp > 0 ? (currentTommygunBonusDamage / enemyHp) * 100 : 0;
+
   // Derived computed values for UI binding
   const computed = {
     totalBurst: currentStats.totalBurst,
-    combinedSustainedDps: currentStats.sustainedDps,
+    combinedSustainedDps: currentEffectiveSustainedDps,
     damage: currentStats.displayDamage, // Display effective damage (penalized if serum active)
     rate: currentStats.displayRate, // Display effective rate (boosted if serum active)
     finalRocketDmg: currentStats.finalRocketDmg,
@@ -431,7 +514,9 @@ export default function SoldierPulseRifle() {
   const helixFinalSecondary = miniRocket
     ? Math.max(0, helixFinalTotal - helixFinalSingle)
     : 0;
-  const baseRateNoSerum = BASE_RATE * (1 + fireRatePct * 0.05);
+  const baseRateNoSerum =
+    BASE_RATE * (1 + fireRatePct * 0.05) +
+    (tommygunEnabled ? BASE_RATE * 0.1 : 0);
   const serumRate = baseRateNoSerum + BASE_RATE * SUPER_SERUM_ACTIVE_RATE_BONUS;
   const autoAimBulletsNoSerum =
     Math.floor(baseRateNoSerum * 0.5 + 1e-9) + 1;
@@ -447,8 +532,28 @@ export default function SoldierPulseRifle() {
     autoAimBulletsSerum,
     chaingunEnabled,
   );
-  const totalBurstNoSerum = computed.finalRocketDmg + burstBulletDmgNoSerum;
-  const totalBurstSerum = computed.finalRocketDmg + burstBulletDmgSerum;
+  const tommygunBurstProcsNoSerum = tommygunEnabled
+    ? countTommygunProcsInWindow(autoAimBulletsNoSerum, baseRateNoSerum)
+    : 0;
+  const tommygunBurstProcsSerum = tommygunEnabled
+    ? countTommygunProcsInWindow(autoAimBulletsSerum, serumRate)
+    : 0;
+  const tommygunBurstBonusNoSerum = tommygunBurstProcsNoSerum * 0.01 * enemyHp;
+  const tommygunBurstBonusSerum = tommygunBurstProcsSerum * 0.01 * enemyHp;
+  const totalBurstNoSerum =
+    computed.finalRocketDmg + burstBulletDmgNoSerum + tommygunBurstBonusNoSerum;
+  const totalBurstSerum =
+    computed.finalRocketDmg + burstBulletDmgSerum + tommygunBurstBonusSerum;
+
+  const handleTommygunToggle = () => {
+    setTommygunEnabled((prev) => {
+      const nextEnabled = !prev;
+      if (nextEnabled) {
+        setFireRatePct((current) => (current < 2 ? 2 : current));
+      }
+      return nextEnabled;
+    });
+  };
 
   const handleWheel = (e) => {
     if (e.deltaY !== 0) {
@@ -618,6 +723,16 @@ export default function SoldierPulseRifle() {
                               fireRatePct * 0.05 +
                               SUPER_SERUM_ACTIVE_RATE_BONUS)
                           ).toFixed(2)}
+                        </span>
+                      </div>
+                      <div
+                        className={`flex items-baseline gap-1 text-fuchsia-400 transition-opacity duration-200 ${tommygunEnabled ? "opacity-100" : "opacity-0"}`}
+                      >
+                        <span className="text-[9px] uppercase font-bold">
+                          Tommygun (+10%):
+                        </span>
+                        <span className="text-sm font-mono font-bold">
+                          {(BASE_RATE * (1 + fireRatePct * 0.05 + 0.1)).toFixed(2)}
                         </span>
                       </div>
                     </div>
@@ -811,6 +926,80 @@ export default function SoldierPulseRifle() {
                       </div>
                     </div>
 
+                    <div className="bg-slate-900/40 rounded-xl border border-fuchsia-400/20 p-3 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex flex-col">
+                          <label className="text-xs font-semibold text-slate-300">
+                            Three Tap Tommygun
+                          </label>
+                          <span className="text-[9px] text-slate-500 leading-tight mt-1">
+                            After ability, adds +10% attack speed and +1% max
+                            HP every 0.25s.
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={handleTommygunToggle}
+                          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-fuchsia-500 focus:ring-offset-2 focus:ring-offset-slate-900 ${tommygunEnabled ? "bg-fuchsia-500" : "bg-slate-600"}`}
+                        >
+                          <span
+                            className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${tommygunEnabled ? "translate-x-6" : "translate-x-1"}`}
+                          />
+                        </button>
+                      </div>
+
+                      <div className="flex bg-slate-800/60 rounded-lg p-1 border border-slate-700">
+                        <button
+                          type="button"
+                          onClick={() => setTommygunMode("window")}
+                          className={`flex-1 py-1 text-[10px] font-semibold uppercase tracking-wide rounded-md transition-all ${
+                            tommygunMode === "window"
+                              ? "bg-fuchsia-500 text-white shadow-sm"
+                              : "text-slate-400 hover:text-slate-200"
+                          }`}
+                        >
+                          First 3s
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setTommygunMode("always")}
+                          className={`flex-1 py-1 text-[10px] font-semibold uppercase tracking-wide rounded-md transition-all ${
+                            tommygunMode === "always"
+                              ? "bg-fuchsia-500 text-white shadow-sm"
+                              : "text-slate-400 hover:text-slate-200"
+                          }`}
+                        >
+                          Always Active
+                        </button>
+                      </div>
+
+                      <div className="text-[10px] text-slate-500 font-mono">
+                        {tommygunMode === "window"
+                          ? "Counts eligible procs in the first 3s after Helix or first shot."
+                          : "Counts eligible procs through the full firing cycle."}
+                      </div>
+
+                      <div>
+                        <div className="flex justify-between mb-1 items-end">
+                          <label className="text-[10px] font-semibold block text-slate-500 uppercase">
+                            Enemy Max HP
+                          </label>
+                          <span className="text-white font-mono font-bold text-xs">
+                            {enemyHp}
+                          </span>
+                        </div>
+                        <input
+                          type="range"
+                          min="225"
+                          max="1225"
+                          step="25"
+                          value={enemyHp}
+                          onChange={(e) => setEnemyHp(Number(e.target.value))}
+                          className="w-full h-1.5 bg-slate-700 rounded-lg appearance-none accent-fuchsia-500"
+                        />
+                      </div>
+                    </div>
+
                     {/* Man on Run */}
                     <div className="bg-slate-900/40 rounded-xl border border-slate-700 p-3">
                       <div className="flex justify-between mb-1 items-end">
@@ -873,10 +1062,30 @@ export default function SoldierPulseRifle() {
                     </div>
                     <div className="text-xs text-orange-400/80 font-mono mt-1 relative z-10 min-h-[28px]">
                       (Helix + {autoAimBulletsNoSerum} Bullets)
+                      {tommygunEnabled ? (
+                        <span className="block text-fuchsia-300">
+                          Includes Tommygun proc damage:{" "}
+                          {tommygunBurstProcsNoSerum} procs.
+                        </span>
+                      ) : (
+                        <span className="block opacity-0 select-none">
+                          Tommygun placeholder
+                        </span>
+                      )}
                       {superSerumActive && (
                         <span className="block text-violet-300">
                           Serum active: {Math.round(totalBurstSerum)} (Helix +{" "}
                           {autoAimBulletsSerum} Bullets)
+                        </span>
+                      )}
+                      {superSerumActive && tommygunEnabled && (
+                        <span className="block text-fuchsia-300/80">
+                          Serum burst Tommygun: {tommygunBurstProcsSerum} procs.
+                        </span>
+                      )}
+                      {!superSerumActive && (
+                        <span className="block opacity-0 select-none">
+                          Serum Tommygun placeholder
                         </span>
                       )}
                       {!superSerumActive && (
@@ -946,9 +1155,9 @@ export default function SoldierPulseRifle() {
                       <div className="text-[9px] text-slate-500 leading-tight min-h-[36px]">
                         At{" "}
                         <span className="text-blue-300">
-                          {fireRatePct * 5}%
+                          {((baseRateNoSerum / BASE_RATE - 1) * 100).toFixed(0)}%
                         </span>{" "}
-                        attack speed, you fire{" "}
+                        effective attack speed, you fire{" "}
                         <span className="text-white font-bold">
                           {autoAimBulletsNoSerum}
                         </span>{" "}
@@ -981,7 +1190,9 @@ export default function SoldierPulseRifle() {
                       {Math.round(computed.combinedSustainedDps)}
                     </div>
                     <div className="text-xs text-green-400/80 font-mono mt-1">
-                      (Over full cycle)
+                      {tommygunEnabled
+                        ? "(Includes Tommygun bonus damage)"
+                        : "(Over full cycle)"}
                     </div>
                   </div>
                   <div className="mt-4 pt-4 border-t border-slate-700/50 flex flex-wrap gap-6 text-xs text-slate-500">
@@ -1031,6 +1242,73 @@ export default function SoldierPulseRifle() {
                 </div>
               </div>
 
+              <div className="overflow-hidden rounded-xl border border-fuchsia-400/30 bg-gradient-to-br from-fuchsia-500/15 via-slate-800/90 to-slate-800 shadow-lg shadow-fuchsia-950/20">
+                <div className="flex flex-col gap-4 p-5 md:flex-row md:items-stretch md:justify-between">
+                  <div className="min-w-0 md:max-w-sm">
+                    <div className="flex items-center gap-2 text-fuchsia-200">
+                      <Zap className="h-5 w-5" />
+                      <h3 className="text-sm font-bold uppercase tracking-[0.18em]">
+                        Tommygun Impact
+                      </h3>
+                    </div>
+                    <p className="mt-2 text-sm leading-relaxed text-slate-300">
+                      {tommygunMode === "always"
+                        ? "Tracking eligible Tommygun procs across the full rifle cycle."
+                        : "Tracking eligible Tommygun procs in the first 3 seconds after Helix or first shot."}
+                    </p>
+                    <div className="mt-4 flex flex-wrap gap-2 text-[10px] font-semibold uppercase tracking-wide text-slate-300">
+                      <span className="rounded-full border border-fuchsia-300/30 bg-fuchsia-400/10 px-3 py-1 text-fuchsia-200">
+                        {tommygunEnabled ? "Enabled" : "Disabled"}
+                      </span>
+                      <span className="rounded-full border border-slate-600 bg-slate-900/40 px-3 py-1">
+                        {tommygunMode === "always"
+                          ? "Always active"
+                          : "First 3s window"}
+                      </span>
+                      <span className="rounded-full border border-slate-600 bg-slate-900/40 px-3 py-1">
+                        {enemyHp} enemy HP
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="grid flex-1 grid-cols-1 gap-3 sm:grid-cols-3">
+                    <div className="rounded-xl border border-white/10 bg-slate-950/35 p-4 shadow-inner shadow-black/20">
+                      <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-fuchsia-200/80">
+                        Proc Count
+                      </div>
+                      <div className="mt-2 text-2xl font-black text-white">
+                        {currentStats.tommygunProcs}
+                      </div>
+                      <div className="mt-1 text-xs font-mono text-slate-400">
+                        +10% attack speed while active
+                      </div>
+                    </div>
+                    <div className="rounded-xl border border-white/10 bg-slate-950/35 p-4 shadow-inner shadow-black/20">
+                      <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-fuchsia-200/80">
+                        Bonus Damage
+                      </div>
+                      <div className="mt-2 text-2xl font-black text-white">
+                        +{Math.round(currentTommygunBonusDamage)}
+                      </div>
+                      <div className="mt-1 text-xs font-mono text-slate-400">
+                        {tommygunImpactPct.toFixed(1)}% max HP
+                      </div>
+                    </div>
+                    <div className="rounded-xl border border-white/10 bg-slate-950/35 p-4 shadow-inner shadow-black/20">
+                      <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-fuchsia-200/80">
+                        Total Output
+                      </div>
+                      <div className="mt-2 text-2xl font-black text-white">
+                        {Math.round(currentEffectiveTotalDamage)}
+                      </div>
+                      <div className="mt-1 text-xs font-mono text-slate-400">
+                        Includes Tommygun bonus
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               {/* Mechanics Breakdown (New) */}
               <div className="bg-slate-800 rounded-xl p-6 border border-slate-700 shadow-sm">
                 <div className="flex items-center gap-2 mb-4 pb-2 border-b border-slate-700">
@@ -1053,7 +1331,7 @@ export default function SoldierPulseRifle() {
                       Total Damage
                     </div>
                     <div className="text-lg font-bold text-white">
-                      {Math.round(currentStats.totalDamage)}
+                      {Math.round(currentEffectiveTotalDamage)}
                     </div>
                   </div>
                   <div className="bg-slate-900/50 p-3 rounded-lg border border-slate-700/50">
@@ -1212,6 +1490,7 @@ export default function SoldierPulseRifle() {
               <LegendItem color="bg-red-500" label="Reload" />
               <LegendItem color="bg-orange-500" label="Helix" />
               <LegendItem color="bg-emerald-400" label="Fire" />
+              <LegendItem color="bg-fuchsia-400" label="Tommygun" />
               <LegendItem color="bg-blue-400" label="Chaingun" />
               <LegendItem color="bg-violet-300" label="Serum" />
             </div>
@@ -1482,6 +1761,7 @@ function TimelineTrack({ stats, maxTime, fireClass, glowClass }) {
             const isSerumTrigger = event.serumTrigger;
             const isSerumActive = event.serumActiveBullet;
             const isMaxChaingun = event.isMaxChaingun;
+            const isTommygunProc = event.tommygunProc;
 
             return (
               <div
@@ -1511,7 +1791,9 @@ function TimelineTrack({ stats, maxTime, fireClass, glowClass }) {
               >
                 <div
                   className={`h-full transition-all ${
-                    isSerumTrigger
+                    isTommygunProc
+                      ? "w-[2px] bg-fuchsia-400 shadow-[0_0_10px_rgba(232,121,249,0.85)]"
+                      : isSerumTrigger
                       ? "w-[3px] bg-violet-300 shadow-[0_0_18px_rgba(167,139,250,0.95)]"
                       : isSerumActive && isMaxChaingun
                         ? "w-[2px] bg-[linear-gradient(to_bottom,theme(colors.violet.300)_50%,theme(colors.blue.400)_50%)] shadow-[0_0_8px_rgba(167,139,250,0.6)]"
@@ -1711,6 +1993,11 @@ function TimelineTrack({ stats, maxTime, fireClass, glowClass }) {
                           Serum active
                         </div>
                       )}
+                    {tooltip.data.tommygunProc && (
+                      <div className="mt-1 text-[9px] font-semibold uppercase text-fuchsia-300">
+                        Tommygun proc #{tooltip.data.tommygunProcIndex}
+                      </div>
+                    )}
                     {tooltip.data.isMaxChaingun && (
                       <div className="mt-1 text-[9px] font-semibold uppercase text-blue-400">
                         Chaingun: Max Stacks
