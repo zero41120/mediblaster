@@ -25,6 +25,9 @@ export default function MediblasterPage() {
     withReload: true,
     tommygunEnabled: false,
     tommygunMode: "window",
+    fissionEnabled: false,
+    fissionRefreshes: 0,
+    fissionBypassInitRecovery: false,
   });
 
   const [zoomLevel, setZoomLevel] = useState(1);
@@ -60,6 +63,9 @@ export default function MediblasterPage() {
       withReload,
       tommygunEnabled,
       tommygunMode,
+      fissionEnabled,
+      fissionRefreshes,
+      fissionBypassInitRecovery,
     } = config;
 
     const VOLLEY_SIZE = 12;
@@ -69,6 +75,11 @@ export default function MediblasterPage() {
     const RECOVERY_FRAMES = 0.45 * TPS;
     const TOMMYGUN_WINDOW_FRAMES = 3 * TPS;
     const TOMMYGUN_PROC_FRAMES = 0.25 * TPS;
+    const FISSION_FIRE_RATE = 25;
+    const FISSION_BASE_DURATION = 2.75 * TPS;
+    const FISSION_REFRESH_DURATION = 3 * TPS;
+    const FISSION_BULLET_INTERVAL = TPS / FISSION_FIRE_RATE; // 2.4 frames
+    const FISSION_RECOVERY_FRAMES = 0.55 * TPS;
 
     const attackSpeedPercent = attackSpeed / 100;
     const weaponPowerPercent = weaponPower / 100;
@@ -107,57 +118,74 @@ export default function MediblasterPage() {
     // 3. Firing Loop
     let damageAccumulated = 0;
     const damagePerShot = bulletValue * weaponPowerPercent;
+    let fissionBulletsFired = 0;
 
-    for (let i = 1; i <= clipSize; i++) {
-      const isFirstBulletOfVolley = (i - 1) % VOLLEY_SIZE === 0;
-      if (isFirstBulletOfVolley) {
-        volleyProcCount = 0;
-      }
-
-      // Intra-burst interval
-      if (!isFirstBulletOfVolley) {
+    if (fissionEnabled && clipSize > 0) {
+      // 0.55s fixed recovery after cocking, before fission burst (ignores attack speed)
+      // Skipped when bypassed via active fission during reload
+      if (!fissionBypassInitRecovery) {
         timeline.push({
-          type: "interval",
+          type: "recovery",
           start: currentTime,
-          duration: INTRA_BURST_INTERVAL_FRAMES,
-          label: "",
+          duration: FISSION_RECOVERY_FRAMES,
+          label: "Rec",
         });
-        currentTime += INTRA_BURST_INTERVAL_FRAMES;
+        currentTime += FISSION_RECOVERY_FRAMES;
       }
 
-      // Fire Event
-      damageAccumulated += damagePerShot;
-      if (firstFireTime === null) firstFireTime = currentTime;
-      const withinTommyWindow =
-        tommygunEnabled &&
-        firstFireTime !== null &&
-        (tommygunMode === "always" ||
-          currentTime - firstFireTime <= TOMMYGUN_WINDOW_FRAMES + 1e-9);
-      const canProc =
-        withinTommyWindow &&
-        volleyProcCount < 2 &&
-        (lastProcTime === null ||
-          currentTime - lastProcTime >= TOMMYGUN_PROC_FRAMES - 1e-9);
-      if (canProc) {
-        lastProcTime = currentTime;
-        tommygunProcs += 1;
-        volleyProcCount += 1;
+      const totalBuffFrames =
+        FISSION_BASE_DURATION + fissionRefreshes * FISSION_REFRESH_DURATION;
+      const fissionStartTime = currentTime;
+      let bulletsFired = 0;
+      let fissionFireTime = currentTime;
+
+      while (
+        bulletsFired < clipSize &&
+        fissionFireTime < fissionStartTime + totalBuffFrames - 1e-9
+      ) {
+        damageAccumulated += damagePerShot;
+        if (firstFireTime === null) firstFireTime = fissionFireTime;
+
+        if (bulletsFired % VOLLEY_SIZE === 0) volleyProcCount = 0;
+
+        const withinTommyWindow =
+          tommygunEnabled &&
+          firstFireTime !== null &&
+          (tommygunMode === "always" ||
+            fissionFireTime - firstFireTime <= TOMMYGUN_WINDOW_FRAMES + 1e-9);
+        const canProc =
+          withinTommyWindow &&
+          volleyProcCount < 2 &&
+          (lastProcTime === null ||
+            fissionFireTime - lastProcTime >= TOMMYGUN_PROC_FRAMES - 1e-9);
+        if (canProc) {
+          lastProcTime = fissionFireTime;
+          tommygunProcs += 1;
+          volleyProcCount += 1;
+        }
+
+        timeline.push({
+          type: "fission_fire",
+          start: fissionFireTime,
+          duration: 0,
+          damage: damageAccumulated,
+          bulletIndex: bulletsFired + 1,
+          tommygunProc: canProc,
+          tommygunProcIndex: canProc ? tommygunProcs : null,
+        });
+
+        bulletsFired++;
+        fissionFireTime += FISSION_BULLET_INTERVAL;
       }
-      timeline.push({
-        type: "fire",
-        start: currentTime,
-        duration: 0,
-        damage: damageAccumulated,
-        bulletIndex: i,
-        tommygunProc: canProc,
-        tommygunProcIndex: canProc ? tommygunProcs : null,
-      });
 
-      // Recovery Phase
-      const isEndOfVolley = i % VOLLEY_SIZE === 0;
-      const hasAmmoLeft = i < clipSize;
+      fissionBulletsFired = bulletsFired;
+      const remainingClip = clipSize - bulletsFired;
 
-      if (isEndOfVolley && hasAmmoLeft) {
+      if (remainingClip > 0) {
+        // Buff ended before clip empty — advance to end of buff
+        currentTime = fissionStartTime + totalBuffFrames;
+
+        // Transition recovery: normal 0.45s × attack speed
         timeline.push({
           type: "recovery",
           start: currentTime,
@@ -165,6 +193,127 @@ export default function MediblasterPage() {
           label: "Rec",
         });
         currentTime += singleRecoveryFrame;
+
+        // Resume normal volley firing for remaining bullets
+        volleyProcCount = 0;
+        for (let i = 1; i <= remainingClip; i++) {
+          const isFirstBulletOfVolley = (i - 1) % VOLLEY_SIZE === 0;
+          if (isFirstBulletOfVolley) volleyProcCount = 0;
+
+          if (!isFirstBulletOfVolley) {
+            timeline.push({
+              type: "interval",
+              start: currentTime,
+              duration: INTRA_BURST_INTERVAL_FRAMES,
+              label: "",
+            });
+            currentTime += INTRA_BURST_INTERVAL_FRAMES;
+          }
+
+          damageAccumulated += damagePerShot;
+          if (firstFireTime === null) firstFireTime = currentTime;
+
+          const withinTommyWindow =
+            tommygunEnabled &&
+            firstFireTime !== null &&
+            (tommygunMode === "always" ||
+              currentTime - firstFireTime <= TOMMYGUN_WINDOW_FRAMES + 1e-9);
+          const canProc =
+            withinTommyWindow &&
+            volleyProcCount < 2 &&
+            (lastProcTime === null ||
+              currentTime - lastProcTime >= TOMMYGUN_PROC_FRAMES - 1e-9);
+          if (canProc) {
+            lastProcTime = currentTime;
+            tommygunProcs += 1;
+            volleyProcCount += 1;
+          }
+
+          timeline.push({
+            type: "fire",
+            start: currentTime,
+            duration: 0,
+            damage: damageAccumulated,
+            bulletIndex: bulletsFired + i,
+            tommygunProc: canProc,
+            tommygunProcIndex: canProc ? tommygunProcs : null,
+          });
+
+          const isEndOfVolley = i % VOLLEY_SIZE === 0;
+          const hasAmmoLeft = i < remainingClip;
+          if (isEndOfVolley && hasAmmoLeft) {
+            timeline.push({
+              type: "recovery",
+              start: currentTime,
+              duration: singleRecoveryFrame,
+              label: "Rec",
+            });
+            currentTime += singleRecoveryFrame;
+          }
+        }
+      } else {
+        // Clip exhausted during fission — set time to last bullet
+        currentTime = fissionFireTime - FISSION_BULLET_INTERVAL;
+      }
+    } else {
+      for (let i = 1; i <= clipSize; i++) {
+        const isFirstBulletOfVolley = (i - 1) % VOLLEY_SIZE === 0;
+        if (isFirstBulletOfVolley) {
+          volleyProcCount = 0;
+        }
+
+        // Intra-burst interval
+        if (!isFirstBulletOfVolley) {
+          timeline.push({
+            type: "interval",
+            start: currentTime,
+            duration: INTRA_BURST_INTERVAL_FRAMES,
+            label: "",
+          });
+          currentTime += INTRA_BURST_INTERVAL_FRAMES;
+        }
+
+        // Fire Event
+        damageAccumulated += damagePerShot;
+        if (firstFireTime === null) firstFireTime = currentTime;
+        const withinTommyWindow =
+          tommygunEnabled &&
+          firstFireTime !== null &&
+          (tommygunMode === "always" ||
+            currentTime - firstFireTime <= TOMMYGUN_WINDOW_FRAMES + 1e-9);
+        const canProc =
+          withinTommyWindow &&
+          volleyProcCount < 2 &&
+          (lastProcTime === null ||
+            currentTime - lastProcTime >= TOMMYGUN_PROC_FRAMES - 1e-9);
+        if (canProc) {
+          lastProcTime = currentTime;
+          tommygunProcs += 1;
+          volleyProcCount += 1;
+        }
+        timeline.push({
+          type: "fire",
+          start: currentTime,
+          duration: 0,
+          damage: damageAccumulated,
+          bulletIndex: i,
+          tommygunProc: canProc,
+          tommygunProcIndex: canProc ? tommygunProcs : null,
+        });
+
+        // Recovery Phase
+        const isEndOfVolley = i % VOLLEY_SIZE === 0;
+        const hasAmmoLeft = i < clipSize;
+
+        if (isEndOfVolley && hasAmmoLeft) {
+          timeline.push({
+            type: "recovery",
+            start: currentTime,
+            duration: singleRecoveryFrame,
+            label: "Rec",
+          });
+          currentTime += singleRecoveryFrame;
+        }
       }
     }
 
@@ -179,6 +328,7 @@ export default function MediblasterPage() {
       totalDamage,
       dps,
       tommygunProcs,
+      fissionBulletsFired,
     };
   };
 
@@ -194,6 +344,9 @@ export default function MediblasterPage() {
         withReload: true,
         tommygunEnabled: false,
         tommygunMode: "window",
+        fissionEnabled: false,
+        fissionRefreshes: 0,
+        fissionBypassInitRecovery: false,
       }),
     [params.bulletValue],
   );
@@ -209,6 +362,9 @@ export default function MediblasterPage() {
         withReload: params.withReload,
         tommygunEnabled: isTommygunActive,
         tommygunMode: params.tommygunMode,
+        fissionEnabled: params.fissionEnabled,
+        fissionRefreshes: params.fissionRefreshes,
+        fissionBypassInitRecovery: params.fissionBypassInitRecovery,
       }),
     [params, currentClipSize, isTommygunActive],
   );
@@ -254,6 +410,9 @@ export default function MediblasterPage() {
         withReload: params.withReload,
         tommygunEnabled: true,
         tommygunMode: "window",
+        fissionEnabled: params.fissionEnabled,
+        fissionRefreshes: params.fissionRefreshes,
+        fissionBypassInitRecovery: params.fissionBypassInitRecovery,
       });
 
       if (lastProcs === null || stats.tommygunProcs !== lastProcs) {
@@ -279,7 +438,7 @@ export default function MediblasterPage() {
     setParams((prev) => ({
       ...prev,
       [key]:
-        key === "withReload" || key === "tommygunEnabled" || key === "tommygunMode"
+        key === "withReload" || key === "tommygunEnabled" || key === "tommygunMode" || key === "fissionEnabled" || key === "fissionBypassInitRecovery"
           ? value
           : Number(value),
     }));
@@ -564,6 +723,104 @@ export default function MediblasterPage() {
                   </button>
                 </div>
 
+                <div className="bg-slate-900/50 rounded-lg border border-slate-700/70 p-3 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex flex-col">
+                      <span className="text-sm font-semibold text-slate-200">
+                        Fission Chamber
+                      </span>
+                      <span className="text-[10px] text-slate-400 leading-tight">
+                        Fires at 25/sec for{" "}
+                        {(2.75 + params.fissionRefreshes * 3).toFixed(2)}s,
+                        ignoring attack speed.
+                      </span>
+                    </div>
+                    <button
+                      onClick={() =>
+                        handleParamChange(
+                          "fissionEnabled",
+                          !params.fissionEnabled,
+                        )
+                      }
+                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-offset-2 focus:ring-offset-slate-900 ${params.fissionEnabled ? "bg-sky-500" : "bg-slate-600"}`}
+                    >
+                      <span
+                        className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${params.fissionEnabled ? "translate-x-6" : "translate-x-1"}`}
+                      />
+                    </button>
+                  </div>
+                  <div>
+                    <div className="flex justify-between mb-1 items-end">
+                      <div>
+                        <label className="text-[10px] font-semibold block text-slate-500 uppercase">
+                          Refreshes
+                        </label>
+                        <span className="text-[10px] text-sky-400 font-bold">
+                          {params.fissionRefreshes} × +3s
+                        </span>
+                      </div>
+                      <div className="flex items-baseline gap-2">
+                        <span className="text-white font-mono font-bold text-sm">
+                          {(2.75 + params.fissionRefreshes * 3).toFixed(2)}s
+                        </span>
+                        <span className="text-[9px] uppercase tracking-wide text-slate-500">
+                          total
+                        </span>
+                      </div>
+                    </div>
+                    <input
+                      type="range"
+                      min="0"
+                      max="3"
+                      step="1"
+                      value={params.fissionRefreshes}
+                      onChange={(e) =>
+                        handleParamChange("fissionRefreshes", e.target.value)
+                      }
+                      className="w-full h-1.5 bg-slate-700 rounded-lg appearance-none accent-sky-500"
+                    />
+                    <div className="flex justify-between text-[9px] text-slate-600 font-mono mt-0.5 px-0.5">
+                      <span>0</span>
+                      <span>1</span>
+                      <span>2</span>
+                      <span className={params.fissionRefreshes === 3 ? "text-amber-400 font-bold" : ""}>3</span>
+                    </div>
+                    <div className={`text-[10px] mt-1 transition-colors ${params.fissionRefreshes === 3 ? "text-amber-400/80" : "invisible"}`}>
+                      Requires Lux Loop passive — also grants additional max ammo.
+                    </div>
+                  </div>
+                  <div className="border-t border-slate-700/50 pt-2 space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <div className="flex flex-col">
+                        <span className="text-[10px] font-semibold text-slate-400">
+                          Bypass Initial Recovery
+                        </span>
+                        <span className="text-[9px] text-slate-600 leading-tight">
+                          Active fission during reload skips the 0.55s lead-in.
+                        </span>
+                      </div>
+                      <button
+                        onClick={() =>
+                          handleParamChange(
+                            "fissionBypassInitRecovery",
+                            !params.fissionBypassInitRecovery,
+                          )
+                        }
+                        className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none ${params.fissionBypassInitRecovery ? "bg-sky-500" : "bg-slate-600"}`}
+                      >
+                        <span
+                          className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${params.fissionBypassInitRecovery ? "translate-x-5" : "translate-x-1"}`}
+                        />
+                      </button>
+                    </div>
+                    <div className={`text-[10px] font-mono transition-colors ${params.fissionEnabled ? "text-slate-500" : "invisible"}`}>
+                      {currentStats.fissionBulletsFired} bullets in fission •{" "}
+                      {currentClipSize - currentStats.fissionBulletsFired} bullets
+                      normal
+                    </div>
+                  </div>
+                </div>
+
                 {isDamageMode && (
                   <div className="bg-slate-900/50 rounded-lg border border-slate-700/70 p-3 space-y-2">
                     <div className="flex items-center justify-between">
@@ -842,6 +1099,7 @@ export default function MediblasterPage() {
               <LegendItem color="bg-emerald-500" label="Fire" />
               <LegendItem color="bg-blue-500" label="Recover" />
               <LegendItem color="bg-fuchsia-400" label="Tommygun Proc" />
+              <LegendItem color="bg-sky-400" label="Fission Fire" />
             </div>
 
             <div className="flex items-center space-x-2 bg-slate-900/50 px-3 py-1 rounded-full border border-slate-700">
@@ -1023,6 +1281,7 @@ function TimelineTrack({ stats, maxTime }) {
     recovery: "Recovery",
     interval: "Interval",
     fire: "Fire",
+    fission_fire: "Fission",
   };
 
   return (
@@ -1035,8 +1294,9 @@ function TimelineTrack({ stats, maxTime }) {
           const leftPos = (event.start / (maxTime * TPS)) * 100;
           const width = (event.duration / (maxTime * TPS)) * 100;
 
-          if (event.type === "fire") {
+          if (event.type === "fire" || event.type === "fission_fire") {
             const isHovered = tooltip?.idx === idx;
+            const isFission = event.type === "fission_fire";
             return (
               <div
                 key={idx}
@@ -1067,7 +1327,9 @@ function TimelineTrack({ stats, maxTime }) {
                   className={`h-full transition-all ${
                     event.tommygunProc
                       ? "bg-fuchsia-400 shadow-[0_0_8px_rgba(232,121,249,0.7)]"
-                      : "bg-emerald-400 shadow-[0_0_6px_rgba(16,185,129,0.4)]"
+                      : isFission
+                        ? "bg-sky-400 shadow-[0_0_6px_rgba(56,189,248,0.4)]"
+                        : "bg-emerald-400 shadow-[0_0_6px_rgba(16,185,129,0.4)]"
                   } ${
                     isHovered
                       ? "w-[3px] brightness-125"
@@ -1133,9 +1395,9 @@ function TimelineTrack({ stats, maxTime }) {
             Math.max(tooltip.y - tooltipSize.height - 16, 8),
             window.innerHeight - tooltipSize.height - 8,
           );
-          const isFire = tooltip.data.type === "fire";
+          const isFire = tooltip.data.type === "fire" || tooltip.data.type === "fission_fire";
           const title = isFire
-            ? `Bullet #${tooltip.data.bulletIndex}`
+            ? `${tooltip.data.type === "fission_fire" ? "[Fission] " : ""}Bullet #${tooltip.data.bulletIndex}`
             : typeLabels[tooltip.data.type] || "Event";
 
           return createPortal(
