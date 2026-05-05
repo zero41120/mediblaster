@@ -70,9 +70,7 @@ export default function MediblasterPage() {
     const TOMMYGUN_WINDOW_FRAMES = 3 * TPS;
     const TOMMYGUN_PROC_FRAMES = 0.25 * TPS;
 
-    const effectiveAttackSpeed =
-      attackSpeed + (tommygunEnabled ? 10 : 0);
-    const attackSpeedPercent = effectiveAttackSpeed / 100;
+    const attackSpeedPercent = attackSpeed / 100;
     const weaponPowerPercent = weaponPower / 100;
 
     // ceil() logic from original code
@@ -194,10 +192,10 @@ export default function MediblasterPage() {
         attackSpeed: 100,
         clipSize: BASE_CLIP,
         withReload: true,
-        tommygunEnabled: isTommygunActive,
-        tommygunMode: params.tommygunMode,
+        tommygunEnabled: false,
+        tommygunMode: "window",
       }),
-    [params.bulletValue, isTommygunActive, params.tommygunMode],
+    [params.bulletValue],
   );
 
   // Generate stats for Current Profile (User Config)
