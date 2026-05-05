@@ -32,6 +32,7 @@ export default function MediblasterPage() {
 
   const [zoomLevel, setZoomLevel] = useState(1);
   const [visualizerOpen, setVisualizerOpen] = useState(true);
+  const [compactTimeline, setCompact] = useState(false);
 
   // Drag-to-scroll state
   const scrollContainerRef = useRef(null);
@@ -1076,7 +1077,7 @@ export default function MediblasterPage() {
 
       {/* Bottom Section: Timeline (Comparative Video Editor Style) */}
       <div
-        className={`bg-slate-800 border-t-4 border-slate-950 flex flex-col shadow-[0_-10px_40px_rgba(0,0,0,0.5)] z-10 relative ${visualizerOpen ? "h-[35vh] min-h-[250px]" : "h-auto"}`}
+        className={`bg-slate-800 border-t-4 border-slate-950 flex flex-col shadow-[0_-10px_40px_rgba(0,0,0,0.5)] z-10 relative transition-all ${visualizerOpen ? (compactTimeline ? "h-[14vh] min-h-[110px]" : "h-[35vh] min-h-[250px]") : "h-auto"}`}
       >
         {/* Timeline Toolbar */}
         <button
@@ -1122,6 +1123,19 @@ export default function MediblasterPage() {
               Scale: {maxDuration.toFixed(2)}s
             </div>
           </div>
+          <div className="flex justify-start">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setCompact((v) => !v);
+            }}
+            className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500 hover:text-slate-300 bg-slate-900/80 border border-slate-700/60 px-2 py-1 rounded backdrop-blur-sm transition-colors"
+          >
+            <ChevronDown className={`w-3 h-3 transition-transform ${compactTimeline ? "-rotate-90" : ""}`} />
+            {compactTimeline ? "Normal" : "Compact"}
+          </button>
+        </div>
           <ChevronDown
             className={`h-4 w-4 text-slate-400 transition-transform ${visualizerOpen ? "rotate-180" : ""}`}
           />
@@ -1138,7 +1152,7 @@ export default function MediblasterPage() {
           onWheel={handleWheel}
         >
           <div
-            className="h-full p-4 md:p-6 flex flex-col gap-2 justify-center relative min-w-full"
+            className={`h-full flex flex-col gap-1 relative min-w-full ${compactTimeline ? "justify-start py-1 px-4" : "justify-center p-4"}`}
             style={{ width: `${zoomLevel * 100}%` }}
           >
             {/* Common Time Axis */}
@@ -1167,33 +1181,40 @@ export default function MediblasterPage() {
             </div>
 
             {/* Track 1: Base Profile (Static) */}
-            <div className="relative w-full h-1/3 min-h-[60px] max-h-[100px] z-10 flex flex-col justify-center group mb-4">
-              <div className="flex justify-between items-end mb-1 sticky left-0 px-1 w-full z-20 pointer-events-none">
-                <span className="text-xs text-slate-400 font-bold uppercase tracking-wider bg-slate-900/50 px-2 rounded backdrop-blur-sm shadow-sm">
-                  Base Profile (Static)
-                </span>
-              </div>
+            {!compactTimeline && (
+            <div className={`relative w-full z-10 flex flex-col justify-center group mb-4 transition-all ${compactTimeline ? "" : "h-1/3 min-h-[60px] max-h-[100px]"}`}>
 
-              {/* Floating time label - Sticky to right edge of viewport */}
-              <div className="absolute top-0 right-0 h-full w-full pointer-events-none z-30">
-                <span className="sticky left-[95%] text-xs font-mono text-slate-400 bg-slate-900/80 px-2 rounded border border-slate-700/50 whitespace-nowrap">
-                  {baseStats.totalTimeSeconds.toFixed(2)}s
-                </span>
-              </div>
+                <div className="flex justify-between items-end mb-1 sticky left-0 px-1 w-full z-20 pointer-events-none">
+                  <span className="text-xs text-slate-400 font-bold uppercase tracking-wider bg-slate-900/50 px-2 rounded backdrop-blur-sm shadow-sm">
+                    Base Profile (Static)
+                  </span>
+                </div>
 
-              <div className="w-full flex-1 bg-slate-900/80 rounded border border-slate-700 relative overflow-hidden group-hover:brightness-110 transition-all">
-                <TimelineTrack stats={baseStats} maxTime={maxDuration} />
-              </div>
+                  {/* Floating time label - Sticky to right edge of viewport */}
+                  <div className="absolute top-0 right-0 h-full w-full pointer-events-none z-30">
+                    <span className="sticky left-[95%] text-xs font-mono text-slate-400 bg-slate-900/80 px-2 rounded border border-slate-700/50 whitespace-nowrap">
+                      {baseStats.totalTimeSeconds.toFixed(2)}s
+                    </span>
+                  </div>
+
+                  <div className="w-full flex-1 bg-slate-900/80 rounded border border-slate-700 relative overflow-hidden group-hover:brightness-110 transition-all min-h-[40px]">
+                    <TimelineTrack stats={baseStats} maxTime={maxDuration} />
+                  </div>
+
             </div>
+                          )}
+
 
             {/* Track 2: Custom Profile (Dynamic) */}
-            <div className="relative w-full h-1/3 min-h-[60px] max-h-[100px] z-10 flex flex-col justify-center">
+            <div className={`relative w-full z-10 flex flex-col justify-center ${compactTimeline ? "min-h-[60px] max-h-[100px] mt-1" : "h-1/3 min-h-[60px] max-h-[100px]"}`}>
               {/* Sticky label header */}
-              <div className="flex justify-between items-end mb-1 sticky left-0 px-1 w-full z-20 pointer-events-none">
-                <span className="text-xs text-emerald-500 font-bold uppercase tracking-wider bg-slate-900/50 px-2 rounded backdrop-blur-sm shadow-sm">
-                  Custom Configuration
-                </span>
-              </div>
+              {!compactTimeline && (
+                <div className="flex justify-between items-end mb-1 sticky left-0 px-1 w-full z-20 pointer-events-none">
+                  <span className="text-xs text-emerald-500 font-bold uppercase tracking-wider bg-slate-900/50 px-2 rounded backdrop-blur-sm shadow-sm">
+                    Custom Configuration
+                  </span>
+                </div>
+              )}
 
               {/* Floating time label - Sticky to right edge of viewport */}
               <div className="absolute top-0 right-0 h-full w-full pointer-events-none z-30">
@@ -1208,7 +1229,7 @@ export default function MediblasterPage() {
             </div>
 
             {/* Bottom Time Labels */}
-            <div className="h-6 w-full relative mt-1 select-none pointer-events-none">
+            <div className={`w-full relative select-none pointer-events-none ${compactTimeline ? "h-5 mt-0" : "h-6 mt-1"}`}>
               {Array.from({
                 length: Math.ceil(maxDuration * (zoomLevel >= 3 ? 2 : 1)) + 1,
               }).map((_, i) => {
