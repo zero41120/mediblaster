@@ -1077,12 +1077,12 @@ export default function MediblasterPage() {
 
       {/* Bottom Section: Timeline (Comparative Video Editor Style) */}
       <div
-        className={`bg-slate-800 border-t-4 border-slate-950 flex flex-col shadow-[0_-10px_40px_rgba(0,0,0,0.5)] z-10 relative transition-all ${visualizerOpen ? (compactTimeline ? "h-[14vh] min-h-[110px]" : "h-[35vh] min-h-[250px]") : "h-auto"}`}
+        className={`bg-slate-800 border-t-4 border-slate-950 flex flex-col shadow-[0_-10px_40px_rgba(0,0,0,0.5)] z-10 relative transition-all ${visualizerOpen ? (compactTimeline ? "h-[22vh] min-h-[150px] md:h-[14vh] md:min-h-[110px]" : "h-[35vh] min-h-[250px]") : "h-auto"}`}
       >
         {/* Timeline Toolbar */}
         <button
           type="button"
-          className="px-6 py-3 bg-slate-800 border-b border-slate-700 flex items-center justify-between shrink-0"
+          className="px-4 md:px-6 py-3 bg-slate-800 border-b border-slate-700 flex items-center justify-between gap-2 shrink-0"
           onClick={() => setVisualizerOpen((prev) => !prev)}
         >
           <h3 className="text-lg font-semibold text-white flex items-center gap-2">
@@ -1091,7 +1091,7 @@ export default function MediblasterPage() {
           </h3>
 
           <div
-            className="flex items-center space-x-4"
+            className="hidden sm:flex items-center space-x-4"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="hidden md:flex space-x-4 text-xs font-normal bg-slate-800 p-2 rounded-lg border border-slate-700">
@@ -1123,7 +1123,7 @@ export default function MediblasterPage() {
               Scale: {maxDuration.toFixed(2)}s
             </div>
           </div>
-          <div className="flex justify-start">
+          <div className="flex justify-start shrink-0">
           <button
             type="button"
             onClick={(e) => {
@@ -1152,7 +1152,7 @@ export default function MediblasterPage() {
           onWheel={handleWheel}
         >
           <div
-            className={`h-full flex flex-col gap-1 relative min-w-full ${compactTimeline ? "justify-start py-1 px-4" : "justify-center p-4"}`}
+            className={`h-full flex flex-col gap-1 relative min-w-full ${compactTimeline ? "justify-start py-1 px-2 md:px-4" : "justify-center p-4"}`}
             style={{ width: `${zoomLevel * 100}%` }}
           >
             {/* Common Time Axis */}
@@ -1206,7 +1206,7 @@ export default function MediblasterPage() {
 
 
             {/* Track 2: Custom Profile (Dynamic) */}
-            <div className={`relative w-full z-10 flex flex-col justify-center ${compactTimeline ? "min-h-[60px] max-h-[100px] mt-1" : "h-1/3 min-h-[60px] max-h-[100px]"}`}>
+            <div className={`relative w-full z-10 flex flex-col justify-center ${compactTimeline ? "min-h-[70px] max-h-[110px] mt-1" : "h-1/3 min-h-[60px] max-h-[100px]"}`}>
               {/* Sticky label header */}
               {!compactTimeline && (
                 <div className="flex justify-between items-end mb-1 sticky left-0 px-1 w-full z-20 pointer-events-none">
@@ -1218,7 +1218,7 @@ export default function MediblasterPage() {
 
               {/* Floating time label - Sticky to right edge of viewport */}
               <div className="absolute top-0 right-0 h-full w-full pointer-events-none z-30">
-                <span className="sticky left-[95%] text-xs font-mono text-emerald-400 bg-slate-900/80 px-2 rounded border border-emerald-500/30 whitespace-nowrap">
+                <span className="sticky left-[92%] md:left-[95%] text-[10px] md:text-xs font-mono text-emerald-400 bg-slate-900/80 px-1.5 md:px-2 rounded border border-emerald-500/30 whitespace-nowrap">
                   {currentStats.totalTimeSeconds.toFixed(2)}s
                 </span>
               </div>
