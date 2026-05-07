@@ -108,13 +108,15 @@ export default function MediblasterPage() {
     }
 
     // 2. Cocking Phase
-    timeline.push({
-      type: "cocking",
-      start: currentTime,
-      duration: cockingFrames,
-      label: "Cock",
-    });
-    currentTime += cockingFrames;
+    if (withReload) {
+      timeline.push({
+        type: "cocking",
+        start: currentTime,
+        duration: cockingFrames,
+        label: "Cock",
+      });
+      currentTime += cockingFrames;
+    }
 
     // 3. Firing Loop
     let damageAccumulated = 0;
@@ -138,7 +140,7 @@ export default function MediblasterPage() {
         FISSION_BASE_DURATION + fissionRefreshes * FISSION_REFRESH_DURATION;
       const fissionStartTime = currentTime;
       let bulletsFired = 0;
-      let fissionFireTime = currentTime;
+      let fissionFireTime = currentTime + FISSION_BULLET_INTERVAL;
 
       while (
         bulletsFired < clipSize &&
