@@ -23,6 +23,7 @@ export default function MediblasterPage() {
     enemyHp: 750,
     clipMods: { m20: false, m25: false, m40: false },
     withReload: true,
+    kickEnabled: false,
     tommygunEnabled: false,
     tommygunMode: "window",
     fissionEnabled: false,
@@ -62,6 +63,7 @@ export default function MediblasterPage() {
       attackSpeed,
       clipSize,
       withReload,
+      kickEnabled,
       tommygunEnabled,
       tommygunMode,
       fissionEnabled,
@@ -73,7 +75,8 @@ export default function MediblasterPage() {
     const INTRA_BURST_INTERVAL_FRAMES = 0.03 * TPS; // 1.8 frames
     const RELOAD_FRAMES = withReload ? 1.5 * TPS : 0;
     const COCKING_FRAMES = 0.3 * TPS;
-    const RECOVERY_FRAMES = 0.45 * TPS;
+    const RECOVERY_FRAMES = kickEnabled ? 0.55 * TPS : 0.45 * TPS;
+    const KICK_DAMAGE = 40;
     const TOMMYGUN_WINDOW_FRAMES = 3 * TPS;
     const TOMMYGUN_PROC_FRAMES = 0.25 * TPS;
     const FISSION_FIRE_RATE = 25;
@@ -95,6 +98,7 @@ export default function MediblasterPage() {
     let lastProcTime = null;
     let tommygunProcs = 0;
     let volleyProcCount = 0;
+    let kickCount = 0;
 
     // 1. Reload Phase
     if (withReload) {
@@ -245,11 +249,22 @@ export default function MediblasterPage() {
           const isEndOfVolley = i % VOLLEY_SIZE === 0;
           const hasAmmoLeft = i < remainingClip;
           if (isEndOfVolley && hasAmmoLeft) {
+            if (kickEnabled) {
+              damageAccumulated += KICK_DAMAGE * weaponPowerPercent;
+              kickCount++;
+              timeline.push({
+                type: "kick",
+                start: currentTime,
+                duration: 0,
+                damage: damageAccumulated,
+                kickIndex: kickCount,
+              });
+            }
             timeline.push({
               type: "recovery",
               start: currentTime,
               duration: singleRecoveryFrame,
-              label: "Rec",
+              label: kickEnabled ? "Kick" : "Rec",
             });
             currentTime += singleRecoveryFrame;
           }
@@ -309,11 +324,22 @@ export default function MediblasterPage() {
         const hasAmmoLeft = i < clipSize;
 
         if (isEndOfVolley && hasAmmoLeft) {
+          if (kickEnabled) {
+            damageAccumulated += KICK_DAMAGE * weaponPowerPercent;
+            kickCount++;
+            timeline.push({
+              type: "kick",
+              start: currentTime,
+              duration: 0,
+              damage: damageAccumulated,
+              kickIndex: kickCount,
+            });
+          }
           timeline.push({
             type: "recovery",
             start: currentTime,
             duration: singleRecoveryFrame,
-            label: "Rec",
+            label: kickEnabled ? "Kick" : "Rec",
           });
           currentTime += singleRecoveryFrame;
         }
@@ -321,7 +347,8 @@ export default function MediblasterPage() {
     }
 
     const totalTimeSeconds = currentTime / TPS;
-    const totalDamage = clipSize * bulletValue * weaponPowerPercent;
+    const kickDamageTotal = kickCount * KICK_DAMAGE * weaponPowerPercent;
+    const totalDamage = clipSize * bulletValue * weaponPowerPercent + kickDamageTotal;
     const dps = totalDamage * (TPS / currentTime);
 
     return {
@@ -329,6 +356,8 @@ export default function MediblasterPage() {
       totalTimeSeconds,
       totalFrames: currentTime,
       totalDamage,
+      kickDamageTotal,
+      kickCount,
       dps,
       tommygunProcs,
       fissionBulletsFired,
@@ -345,6 +374,7 @@ export default function MediblasterPage() {
         attackSpeed: 100,
         clipSize: BASE_CLIP,
         withReload: true,
+        kickEnabled: false,
         tommygunEnabled: false,
         tommygunMode: "window",
         fissionEnabled: false,
@@ -363,6 +393,7 @@ export default function MediblasterPage() {
         attackSpeed: params.attackSpeed,
         clipSize: currentClipSize,
         withReload: params.withReload,
+        kickEnabled: params.kickEnabled,
         tommygunEnabled: isTommygunActive,
         tommygunMode: params.tommygunMode,
         fissionEnabled: params.fissionEnabled,
@@ -411,6 +442,7 @@ export default function MediblasterPage() {
         attackSpeed: speed,
         clipSize: currentClipSize,
         withReload: params.withReload,
+        kickEnabled: params.kickEnabled,
         tommygunEnabled: true,
         tommygunMode: "window",
         fissionEnabled: params.fissionEnabled,
@@ -441,7 +473,7 @@ export default function MediblasterPage() {
     setParams((prev) => ({
       ...prev,
       [key]:
-        key === "withReload" || key === "tommygunEnabled" || key === "tommygunMode" || key === "fissionEnabled" || key === "fissionBypassInitRecovery"
+        key === "withReload" || key === "kickEnabled" || key === "tommygunEnabled" || key === "tommygunMode" || key === "fissionEnabled" || key === "fissionBypassInitRecovery"
           ? value
           : Number(value),
     }));
@@ -710,20 +742,42 @@ export default function MediblasterPage() {
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between p-3 bg-slate-700/50 rounded-lg">
-                  <span className="text-sm font-medium text-slate-300">
-                    With Reload Cycle
-                  </span>
-                  <button
-                    onClick={() =>
-                      handleParamChange("withReload", !params.withReload)
-                    }
-                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 focus:ring-offset-slate-900 ${params.withReload ? "bg-emerald-500" : "bg-slate-600"}`}
-                  >
-                    <span
-                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${params.withReload ? "translate-x-6" : "translate-x-1"}`}
-                    />
-                  </button>
+                <div className="bg-slate-700/50 rounded-lg divide-y divide-slate-600/50">
+                  <div className="flex items-center justify-between p-3">
+                    <span className="text-sm font-medium text-slate-300">
+                      With Reload Cycle
+                    </span>
+                    <button
+                      onClick={() =>
+                        handleParamChange("withReload", !params.withReload)
+                      }
+                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 focus:ring-offset-slate-900 ${params.withReload ? "bg-emerald-500" : "bg-slate-600"}`}
+                    >
+                      <span
+                        className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${params.withReload ? "translate-x-6" : "translate-x-1"}`}
+                      />
+                    </button>
+                  </div>
+                  <div className="flex items-center justify-between p-3">
+                    <div className="flex flex-col">
+                      <span className="text-sm font-medium text-slate-300">
+                        Kick Mode
+                      </span>
+                      <span className="text-[10px] text-slate-500 leading-tight">
+                        +40 dmg per recovery • recovery 0.45s → 0.55s
+                      </span>
+                    </div>
+                    <button
+                      onClick={() =>
+                        handleParamChange("kickEnabled", !params.kickEnabled)
+                      }
+                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2 focus:ring-offset-slate-900 ${params.kickEnabled ? "bg-amber-500" : "bg-slate-600"}`}
+                    >
+                      <span
+                        className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${params.kickEnabled ? "translate-x-6" : "translate-x-1"}`}
+                      />
+                    </button>
+                  </div>
                 </div>
 
                 <div className="bg-slate-900/50 rounded-lg border border-slate-700/70 p-3 space-y-3">
@@ -1047,9 +1101,9 @@ export default function MediblasterPage() {
                     sub={`${(1.8 / TPS).toFixed(3)}s (Fixed)`}
                   />
                   <MechanicBox
-                    label="Recovery"
-                    value={`${Math.ceil((0.45 * TPS) / (params.attackSpeed / 100))} frames`}
-                    sub={`${(Math.ceil((0.45 * TPS) / (params.attackSpeed / 100)) / TPS).toFixed(3)}s • Base: ${Math.ceil(0.45 * TPS)}f / ${(Math.ceil(0.45 * TPS) / TPS).toFixed(3)}s`}
+                    label={params.kickEnabled ? "Recovery (Kick)" : "Recovery"}
+                    value={`${Math.ceil(((params.kickEnabled ? 0.55 : 0.45) * TPS) / (params.attackSpeed / 100))} frames`}
+                    sub={`${(Math.ceil(((params.kickEnabled ? 0.55 : 0.45) * TPS) / (params.attackSpeed / 100)) / TPS).toFixed(3)}s • Base: ${Math.ceil((params.kickEnabled ? 0.55 : 0.45) * TPS)}f`}
                   />
                   <MechanicBox
                     label="Cocking"
@@ -1101,6 +1155,7 @@ export default function MediblasterPage() {
               <LegendItem color="bg-orange-500" label="Cock" />
               <LegendItem color="bg-emerald-500" label="Fire" />
               <LegendItem color="bg-blue-500" label="Recover" />
+              <LegendItem color="bg-amber-400" label="Kick" />
               <LegendItem color="bg-fuchsia-400" label="Tommygun Proc" />
               <LegendItem color="bg-sky-400" label="Fission Fire" />
             </div>
@@ -1305,6 +1360,7 @@ function TimelineTrack({ stats, maxTime }) {
     interval: "Interval",
     fire: "Fire",
     fission_fire: "Fission",
+    kick: "Kick",
   };
 
   return (
@@ -1317,6 +1373,26 @@ function TimelineTrack({ stats, maxTime }) {
           const leftPos = (event.start / (maxTime * TPS)) * 100;
           const width = (event.duration / (maxTime * TPS)) * 100;
 
+          if (event.type === "kick") {
+            const isHovered = tooltip?.idx === idx;
+            return (
+              <div
+                key={idx}
+                className="absolute top-0 h-full flex justify-center z-10 hover:z-20"
+                style={{
+                  left: `${leftPos}%`,
+                  width: "12px",
+                  transform: "translateX(-50%)",
+                }}
+                onMouseEnter={(e) => setTooltip({ idx, x: e.clientX, y: e.clientY, data: event })}
+                onMouseMove={(e) => setTooltip({ idx, x: e.clientX, y: e.clientY, data: event })}
+              >
+                <div
+                  className={`h-full transition-all bg-amber-400 shadow-[0_0_6px_rgba(251,191,36,0.5)] ${isHovered ? "w-[3px] brightness-125" : "w-[2px]"}`}
+                />
+              </div>
+            );
+          }
           if (event.type === "fire" || event.type === "fission_fire") {
             const isHovered = tooltip?.idx === idx;
             const isFission = event.type === "fission_fire";
@@ -1419,9 +1495,12 @@ function TimelineTrack({ stats, maxTime }) {
             window.innerHeight - tooltipSize.height - 8,
           );
           const isFire = tooltip.data.type === "fire" || tooltip.data.type === "fission_fire";
+          const isKick = tooltip.data.type === "kick";
           const title = isFire
             ? `${tooltip.data.type === "fission_fire" ? "[Fission] " : ""}Bullet #${tooltip.data.bulletIndex}`
-            : typeLabels[tooltip.data.type] || "Event";
+            : isKick
+              ? `Kick #${tooltip.data.kickIndex}`
+              : typeLabels[tooltip.data.type] || "Event";
 
           return createPortal(
             <div
@@ -1435,7 +1514,7 @@ function TimelineTrack({ stats, maxTime }) {
                 <div className="text-[10px] text-slate-400 font-bold uppercase mb-1 border-b border-slate-700 pb-1">
                   {title}
                 </div>
-                {isFire ? (
+                {isFire || isKick ? (
                   <>
                     <div className="flex justify-between gap-4 items-center">
                       <span className="text-[9px] text-slate-500 uppercase">
@@ -1453,7 +1532,7 @@ function TimelineTrack({ stats, maxTime }) {
                         {(tooltip.data.start / TPS).toFixed(3)}s
                       </span>
                     </div>
-                    {tooltip.data.tommygunProc && (
+                    {isFire && tooltip.data.tommygunProc && (
                       <div className="mt-1 text-[9px] font-semibold uppercase text-fuchsia-300">
                         Tommygun proc #{tooltip.data.tommygunProcIndex}
                       </div>
