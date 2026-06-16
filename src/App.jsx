@@ -2,11 +2,13 @@ import { useEffect, useState } from "react";
 import Landing from "./pages/Landing";
 import MediblasterPage from "./pages/Mediblaster";
 import SoldierPulseRifle from "./pages/SoldierPulseRifle";
+import TracerPulsePistols from "./pages/TracerPulsePistols";
 
 const ROUTES = {
   "/": Landing,
   "/juno-mediblaster": MediblasterPage,
   "/soldier-76-pulse-rifle": SoldierPulseRifle,
+  "/tracer-pulse-pistols": TracerPulsePistols,
 };
 
 const getRouteFromHash = () => {

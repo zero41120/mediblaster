@@ -86,6 +86,38 @@ export default function Landing() {
               </div>
             </div>
           </a>
+
+          <a
+            href="#/tracer-pulse-pistols"
+            className="group relative flex items-stretch overflow-hidden rounded-2xl border border-amber-300/30 bg-slate-900 shadow-[0_16px_40px_rgba(251,191,36,0.12)] transition hover:-translate-y-1"
+          >
+            <div className="relative h-[200px] w-[147px] shrink-0">
+              <img
+                src="https://static.wikia.nocookie.net/overwatch_gamepedia/images/8/8b/Tracer_Stadium.png"
+                alt="Tracer Stadium"
+                width="294"
+                height="400"
+                className="block h-[200px] w-[147px] object-cover object-top"
+                loading="lazy"
+              />
+              <div className="absolute inset-0 bg-gradient-to-t from-slate-950/70 via-slate-950/10 to-transparent"></div>
+            </div>
+            <div className="relative z-10 flex flex-1 flex-col justify-center gap-2 p-4">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.35em] text-amber-200">
+                Tracer
+              </div>
+              <h2 className="text-lg font-semibold text-white">
+                Pulse Pistols
+              </h2>
+              <p className="text-xs text-slate-300">
+                Burst windows + blink reload cycles.
+              </p>
+              <div className="inline-flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.35em] text-amber-200">
+                Open model
+                <span className="transition group-hover:translate-x-1">→</span>
+              </div>
+            </div>
+          </a>
         </section>
       </main>
 
