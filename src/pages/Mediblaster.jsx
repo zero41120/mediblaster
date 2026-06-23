@@ -82,15 +82,17 @@ export default function MediblasterPage() {
     const FISSION_FIRE_RATE = 25;
     const FISSION_BASE_DURATION = 2.75 * TPS;
     const FISSION_REFRESH_DURATION = 3 * TPS;
-    const FISSION_BULLET_INTERVAL = TPS / FISSION_FIRE_RATE; // 2.4 frames
+    const FISSION_BASE_BULLET_INTERVAL = TPS / FISSION_FIRE_RATE; // 2.4 frames
     const FISSION_RECOVERY_FRAMES = 0.55 * TPS;
 
     const attackSpeedPercent = attackSpeed / 100;
     const weaponPowerPercent = weaponPower / 100;
+    const fissionFireRate = FISSION_FIRE_RATE * attackSpeedPercent;
 
     // ceil() logic from original code
     const cockingFrames = Math.ceil(COCKING_FRAMES / attackSpeedPercent);
     const singleRecoveryFrame = Math.ceil(RECOVERY_FRAMES / attackSpeedPercent);
+    const fissionBulletInterval = FISSION_BASE_BULLET_INTERVAL / attackSpeedPercent;
 
     let currentTime = 0;
     const timeline = [];
@@ -144,7 +146,7 @@ export default function MediblasterPage() {
         FISSION_BASE_DURATION + fissionRefreshes * FISSION_REFRESH_DURATION;
       const fissionStartTime = currentTime;
       let bulletsFired = 0;
-      let fissionFireTime = currentTime + FISSION_BULLET_INTERVAL;
+      let fissionFireTime = currentTime + fissionBulletInterval;
 
       while (
         bulletsFired < clipSize &&
@@ -182,7 +184,7 @@ export default function MediblasterPage() {
         });
 
         bulletsFired++;
-        fissionFireTime += FISSION_BULLET_INTERVAL;
+        fissionFireTime += fissionBulletInterval;
       }
 
       fissionBulletsFired = bulletsFired;
@@ -271,7 +273,7 @@ export default function MediblasterPage() {
         }
       } else {
         // Clip exhausted during fission — set time to last bullet
-        currentTime = fissionFireTime - FISSION_BULLET_INTERVAL;
+        currentTime = fissionFireTime - fissionBulletInterval;
       }
     } else {
       for (let i = 1; i <= clipSize; i++) {
@@ -361,6 +363,7 @@ export default function MediblasterPage() {
       dps,
       tommygunProcs,
       fissionBulletsFired,
+      fissionFireRate,
     };
   };
 
@@ -787,9 +790,8 @@ export default function MediblasterPage() {
                         Fission Chamber
                       </span>
                       <span className="text-[10px] text-slate-400 leading-tight">
-                        Fires at 25/sec for{" "}
-                        {(2.75 + params.fissionRefreshes * 3).toFixed(2)}s,
-                        ignoring attack speed.
+                        Fires at {currentStats.fissionFireRate.toFixed(1)}/sec
+                        for {(2.75 + params.fissionRefreshes * 3).toFixed(2)}s.
                       </span>
                     </div>
                     <button

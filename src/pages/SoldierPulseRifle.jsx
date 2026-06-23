@@ -28,7 +28,7 @@ const DOUBLE_HELIX_ICON =
 const HELIX_ROCKET_ICON =
   "https://static.wikia.nocookie.net/overwatch_gamepedia/images/f/f3/Icon-ability.helixrockets.png";
 
-const BASE_DAMAGE = 19;
+const BASE_DAMAGE = 18;
 const BASE_RATE = 9;
 const BASE_AMMO = 30;
 const RELOAD = 1.5;
